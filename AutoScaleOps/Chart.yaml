@@ -1,0 +1,6 @@
+apiVersion: v2
+name: AutoScaleOps
+description: Production-grade DevOps pipeline app
+type: application
+version: 0.1.0
+appVersion: "v1"
