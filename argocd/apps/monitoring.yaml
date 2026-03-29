@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: monitoring
+  name: monitoring-crds
   namespace: argocd
 spec:
   project: default
@@ -10,12 +10,13 @@ spec:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
     targetRevision: "*"
-
+    helm:
+      skipCrds: true 
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
-
+    createNamespace: true
   syncPolicy:
     automated:
-      prune: true
+      prune: false
       selfHeal: true
