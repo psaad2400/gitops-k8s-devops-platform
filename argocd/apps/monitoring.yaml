@@ -14,6 +14,8 @@ spec:
         prometheus-node-exporter:
           hostRootFsMount:
             enabled: false
+        crds:
+          enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -24,7 +26,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-      - Replace=true
+      # - Replace=true
       - ServerSideDiff=true
       - RespectIgnoreDifferences=true
   ignoreDifferences:
