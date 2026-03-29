@@ -19,7 +19,26 @@ resource "kind_cluster" "dev" {
 
   node {
     role = "control-plane"
+
+    extra_port_mappings {      # Application Service
+      container_port = 30007   # NodePort inside cluster
+      host_port      = 30007   # Port on your machine
+      protocol       = "TCP"
+    }
+
+    extra_port_mappings {      # ArgoCD
+      container_port = 30008   # NodePort inside cluster
+      host_port      = 30008   # Port on your machine
+      protocol       = "TCP"
+    }
+
+    extra_port_mappings {      # Grafana
+      container_port = 30009   # NodePort inside cluster
+      host_port      = 30009   # Port on your machine
+      protocol       = "TCP"
+    }
   }
+
 
   node {
     role = "worker"
