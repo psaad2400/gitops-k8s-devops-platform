@@ -16,6 +16,10 @@ spec:
             enabled: false
         crds:
           enabled: true
+        grafana:
+          service:
+            type: NodePort
+            nodePort: 30009
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
