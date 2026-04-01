@@ -11,7 +11,7 @@ spec:
       - default
   selector:
     matchLabels:
-      app: devops-app-autoscaleops   # your service label
+      app: autoscaleops                 # your service label
   endpoints:
     - port: http                     # port name in your service
       path: /metrics
