@@ -29,7 +29,7 @@ spec:
               - job_name: 'devops-app'
                 static_configs:
                   - targets:
-                    - 'devops-service.default.svc.cluster.local:80'
+                    - 'devops-app-autoscaleops.default.svc.cluster.local:80'
                 metrics_path: /metrics
                 scrape_interval: 15s
   destination:
