@@ -21,6 +21,9 @@ spec:
             type: NodePort
             nodePort: 30009
         prometheus:
+          service:
+            type: NodePort
+            nodePort: 30010
           prometheusSpec:
             additionalScrapeConfigs:
               - job_name: 'devops-app'
