@@ -25,13 +25,17 @@ spec:
             type: NodePort
             nodePort: 30010
           prometheusSpec:
-            additionalScrapeConfigs:
-              - job_name: 'devops-app'
-                static_configs:
-                  - targets:
-                    - 'devops-app-autoscaleops.default.svc.cluster.local:80'
-                metrics_path: /metrics
-                scrape_interval: 15s
+            prometheusSpec:
+            serviceMonitorSelectorNilUsesHelmValues: false   # ✅ add this
+            serviceMonitorSelector: {}                       # ✅ add this
+            
+            # additionalScrapeConfigs:
+            #   - job_name: 'devops-app'
+            #     static_configs:
+            #       - targets:
+            #         - 'devops-app-autoscaleops.default.svc.cluster.local:80'
+            #     metrics_path: /metrics
+            #     scrape_interval: 15s
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
