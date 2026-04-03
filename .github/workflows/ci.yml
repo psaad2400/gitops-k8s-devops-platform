@@ -33,86 +33,140 @@ jobs:
   # Builds Docker image using Buildx, caches layers.
   # Does NOT push yet — push only happens after scan passes.
   # ════════════════════════════════════════════
-  build:
-    name: 🏗️ Build Docker Image
-    runs-on: ubuntu-latest
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
+  # build:
+  #   name: 🏗️ Build Docker Image
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     image-digest: ${{ steps.build.outputs.digest }}
 
-    steps:
-      # ── 1. Checkout source code ──
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+  #   steps:
+  #     # ── 1. Checkout source code ──
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
 
-      # ── 2. Set up QEMU for multi-arch support (good practice even for single-arch) ──
-      - name: Set Up QEMU
-        uses: docker/setup-qemu-action@v3
+  #     # ── 2. Set up QEMU for multi-arch support (good practice even for single-arch) ──
+  #     - name: Set Up QEMU
+  #       uses: docker/setup-qemu-action@v3
 
-      # ── 3. Set up Docker Buildx for advanced build features + layer caching ──
-      - name: Set Up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: true
+  #     # ── 3. Set up Docker Buildx for advanced build features + layer caching ──
+  #     - name: Set Up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
+  #       with:
+  #         install: true
 
-      # ── 4. Authenticate with Docker Hub ──
-      - name: Log In to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+  #     # ── 4. Authenticate with Docker Hub ──
+  #     - name: Log In to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKER_USERNAME }}
+  #         password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # ── 5. Build image and export to Docker daemon for Trivy to scan locally.
-      #       We use `load: true` and skip push here — push is gated by scan result.
-      #       Cache layers are stored in GitHub Actions cache for faster rebuilds. ──
-      - name: Build Docker Image (No Push)
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: ./app
-          file: ./app/Dockerfile
-          platforms: linux/amd64
-          push: false                    # ← Explicitly NOT pushing before scan
-          load: true                     # ← Load into local Docker daemon for Trivy
-          tags: ${{ env.FULL_IMAGE }}
-          cache-from: type=gha           # GitHub Actions cache (free, fast)
-          cache-to: type=gha,mode=max
+  #     # ── 5. Build image and export to Docker daemon for Trivy to scan locally.
+  #     #       We use `load: true` and skip push here — push is gated by scan result.
+  #     #       Cache layers are stored in GitHub Actions cache for faster rebuilds. ──
+  #     - name: Build Docker Image (No Push)
+  #       id: build
+  #       uses: docker/build-push-action@v5
+  #       with:
+  #         context: ./app
+  #         file: ./app/Dockerfile
+  #         platforms: linux/amd64
+  #         push: false                    # ← Explicitly NOT pushing before scan
+  #         load: true                     # ← Load into local Docker daemon for Trivy
+  #         tags: ${{ env.FULL_IMAGE }}
+  #         cache-from: type=gha           # GitHub Actions cache (free, fast)
+  #         cache-to: type=gha,mode=max
 
-      # ── 6. Save image as a tar for the scan job to consume ──
-      - name: Export Image as Tar
-        run: |
-          docker save ${{ env.FULL_IMAGE }} -o /tmp/app-image.tar
-          echo "Image saved: $(du -sh /tmp/app-image.tar | cut -f1)"
+  #     # ── 6. Save image as a tar for the scan job to consume ──
+  #     - name: Export Image as Tar
+  #       run: |
+  #         docker save ${{ env.FULL_IMAGE }} -o /tmp/app-image.tar
+  #         echo "Image saved: $(du -sh /tmp/app-image.tar | cut -f1)"
 
-      # ── 7. Upload image tar as artifact (shared between jobs) ──
-      - name: Upload Image Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: /tmp/app-image.tar
-          retention-days: 1              # Short-lived — only needed within this run
+  #     # ── 7. Upload image tar as artifact (shared between jobs) ──
+  #     - name: Upload Image Artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: docker-image
+  #         path: /tmp/app-image.tar
+  #         retention-days: 1              # Short-lived — only needed within this run
 
   # ════════════════════════════════════════════
   # JOB 2: SECURITY SCAN
   # Downloads built image, runs Trivy, fails on HIGH/CRITICAL.
   # Generates a JSON report saved as a pipeline artifact.
   # ════════════════════════════════════════════
+  
   security-scan:
     name: 🔒 Trivy Security Scan
     runs-on: ubuntu-latest
-    needs: build
-    outputs:
-      scan-result: ${{ steps.set-result.outputs.result }}  # 'pass' or 'fail'
+    # needs: build
 
     steps:
-
-      # ── 4. Run Trivy scan — output JSON report.
-      #       exit-code: 0 here so the step doesn't auto-fail;
-      #       we control the failure logic explicitly below. ──
-      - name: Run Trivy Vulnerability Scan (JSON Report)
-        uses: aquasecurity/trivy-action@v0.34.0
+    # Download the saved image
+      - name: Download Image Artifact
+        uses: actions/download-artifact@v4
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
+          name: docker-image
+          path: /tmp
+
+    # Load the Docker image
+      - name: Load Docker Image
+        run: |
+          docker load -i /tmp/app-image.tar
+          docker images
+
+    # Run Trivy scan using Docker container
+      - name: Run Trivy Vulnerability Scan
+        run: |
+          docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:0.69.1 \
+          image \
+          --exit-code 1 \
+          --severity HIGH,CRITICAL \
+          --format table \
+          ${{ env.FULL_IMAGE }}
+
+    # Optional: Generate JSON report for detailed analysis
+      - name: Generate Detailed JSON Report
+        run: |
+          docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(pwd):/output \
+          aquasec/trivy:0.69.1 \
+          image \
+          --exit-code 0 \
+          --severity HIGH,CRITICAL \
+          --format json \
+          --output /output/trivy-report.json \
+          ${{ env.FULL_IMAGE }}
+
+    # Upload JSON report for detailed review
+      - name: Upload Trivy Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-report
+          path: trivy-report.json
+          retention-days: 7
+
+  # security-scan:
+  #   name: 🔒 Trivy Security Scan
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   outputs:
+  #     scan-result: ${{ steps.set-result.outputs.result }}  # 'pass' or 'fail'
+
+  #   steps:
+
+  #     # ── 4. Run Trivy scan — output JSON report.
+  #     #       exit-code: 0 here so the step doesn't auto-fail;
+  #     #       we control the failure logic explicitly below. ──
+  #     - name: Run Trivy Vulnerability Scan (JSON Report)
+  #       uses: aquasecurity/trivy-action@v0.34.0
+  #       with:
+  #         scan-type: 'fs'
+  #         scan-ref: '.'
           # image-ref: ${{ env.FULL_IMAGE }}
           # format: json
           # output: ${{ env.TRIVY_REPORT_PATH }}
@@ -240,52 +294,3 @@ jobs:
 #         run: |
 #           echo "✅ Image pushed: ${{ env.FULL_IMAGE }}"
 #           echo "✅ Image pushed: ${{ env.IMAGE_NAME }}:latest"
-
-# name: Secure Production Deployment
-# on:
-#   push:
-#     branches: [main]
-
-# env:
-#   DOCKER_USER: psaad2400
-#   IMAGE_NAME: devops-app
-#   PROD_TAG: v1
-
-# jobs:
-#   build-and-promote:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Checkout Code
-#         uses: actions/checkout@v4
-
-#       - name: Login to Docker Hub
-#         uses: docker/login-action@v3
-#         with:
-#           username: ${{ secrets.DOCKER_USERNAME }}
-#           password: ${{ secrets.DOCKER_PASSWORD }}
-
-#       # 1. Build the image locally (using both SHA and v1 tags)
-#       - name: Build Candidate Image
-#         uses: docker/build-push-action@v5
-#         with:
-#           context: ./app
-#           push: false # Don't push yet!
-#           load: true 
-#           tags: |
-#             ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-#             ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ env.PROD_TAG }}
-
-#       # 2. Security Gate: Scan the candidate image
-#       - name: Security Scan (Gate)
-#         uses: aquasecurity/trivy-action@master
-#         with:
-#           image-ref: ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-#           format: 'table'
-#           exit-code: '1' # This stops the workflow if high/critical vulns are found
-#           severity: 'CRITICAL,HIGH'
-
-#       # 3. Promotion: If the scan passes, push both tags to Docker Hub
-#       - name: Push Secure Image to Production
-#         run: |
-#           docker push ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-#           docker push ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ env.PROD_TAG }}
