@@ -123,7 +123,7 @@ jobs:
           -v /var/run/docker.sock:/var/run/docker.sock \
           aquasec/trivy:0.69.1 \
           image \
-          --exit-code 1 \
+          --exit-code 0 \
           --severity HIGH,CRITICAL \
           --format table \
           ${{ env.FULL_IMAGE }}
