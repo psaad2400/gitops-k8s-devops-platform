@@ -163,7 +163,7 @@ jobs:
       #       exit-code: 0 here so the step doesn't auto-fail;
       #       we control the failure logic explicitly below. ──
       - name: Run Trivy Vulnerability Scan (JSON Report)
-        uses: aquasecurity/trivy-action@v0.34.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ env.FULL_IMAGE }}
           format: json
@@ -175,7 +175,7 @@ jobs:
 
       # ── 5. Also generate a human-readable table summary for logs ──
       - name: Trivy Table Summary (Logs)
-        uses: aquasecurity/trivy-action@v0.34.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ env.FULL_IMAGE }}
           format: table
