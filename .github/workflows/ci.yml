@@ -1,262 +1,3 @@
-# name: Secure CI/CD Pipeline
-
-# on:
-#   push:
-#     branches:
-#       - main
-#   workflow_dispatch: # Allow manual trigger for re-runs / hotfixes
-
-# # Prevent concurrent deployments on the same branch
-# concurrency:
-#   group: ${{ github.workflow }}-${{ github.ref }}
-#   cancel-in-progress: true
-
-# # ──────────────────────────────────────────────
-# # Environment-level variables (shared across jobs)
-# # ──────────────────────────────────────────────
-# env:
-#   IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/devops-app
-#   IMAGE_TAG: v1
-#   FULL_IMAGE: ${{ secrets.DOCKER_USERNAME }}/devops-app:v1
-#   ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}       # e.g. argocd.yourdomain.com or localhost:8080
-#   ARGOCD_APP_NAME: devops-app                        # Your ArgoCD Application name
-#   TRIVY_REPORT_PATH: trivy-report.json
-
-# jobs:
-
-#   # ════════════════════════════════════════════
-#   # JOB 1: BUILD
-#   # Builds Docker image using Buildx, caches layers.
-#   # Does NOT push yet — push only happens after scan passes.
-#   # ════════════════════════════════════════════
-#   build:
-#     name: 🏗️ Build Docker Image
-#     runs-on: ubuntu-latest
-#     outputs:
-#       image-digest: ${{ steps.build.outputs.digest }}
-
-#     steps:
-#       # ── 1. Checkout source code ──
-#       - name: Checkout Repository
-#         uses: actions/checkout@v4
-
-#       # ── 2. Set up QEMU for multi-arch support (good practice even for single-arch) ──
-#       - name: Set Up QEMU
-#         uses: docker/setup-qemu-action@v3
-
-#       # ── 3. Set up Docker Buildx for advanced build features + layer caching ──
-#       - name: Set Up Docker Buildx
-#         uses: docker/setup-buildx-action@v3
-#         with:
-#           install: true
-
-#       # ── 4. Authenticate with Docker Hub ──
-#       - name: Log In to Docker Hub
-#         uses: docker/login-action@v3
-#         with:
-#           username: ${{ secrets.DOCKER_USERNAME }}
-#           password: ${{ secrets.DOCKER_PASSWORD }}
-
-#       # ── 5. Build image and export to Docker daemon for Trivy to scan locally.
-#       #       We use `load: true` and skip push here — push is gated by scan result.
-#       #       Cache layers are stored in GitHub Actions cache for faster rebuilds. ──
-#       - name: Build Docker Image (No Push)
-#         id: build
-#         uses: docker/build-push-action@v5
-#         with:
-#           context: ./app
-#           file: ./app/Dockerfile
-#           platforms: linux/amd64
-#           push: false                    # ← Explicitly NOT pushing before scan
-#           load: true                     # ← Load into local Docker daemon for Trivy
-#           tags: ${{ env.FULL_IMAGE }}
-#           cache-from: type=gha           # GitHub Actions cache (free, fast)
-#           cache-to: type=gha,mode=max
-
-#       # ── 6. Save image as a tar for the scan job to consume ──
-#       - name: Export Image as Tar
-#         run: |
-#           docker save ${{ env.FULL_IMAGE }} -o /tmp/app-image.tar
-#           echo "Image saved: $(du -sh /tmp/app-image.tar | cut -f1)"
-
-#       # ── 7. Upload image tar as artifact (shared between jobs) ──
-#       - name: Upload Image Artifact
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: docker-image
-#           path: /tmp/app-image.tar
-#           retention-days: 1              # Short-lived — only needed within this run
-
-#   # ════════════════════════════════════════════
-#   # JOB 2: SECURITY SCAN
-#   # Downloads built image, runs Trivy, fails on HIGH/CRITICAL.
-#   # Generates a JSON report saved as a pipeline artifact.
-#   # ════════════════════════════════════════════
-  
-#   security-scan:
-#     name: 🔒 Trivy Security Scan
-#     runs-on: ubuntu-latest
-#     needs: build
-
-#     steps:
-#     # Download the saved image
-#       - name: Download Image Artifact
-#         uses: actions/download-artifact@v4
-#         with:
-#           name: docker-image
-#           path: /tmp
-
-#     # Load the Docker image
-#       - name: Load Docker Image
-#         run: |
-#           docker load -i /tmp/app-image.tar
-#           docker images
-
-#     # Run Trivy scan using Docker container
-#       - name: Run Trivy Vulnerability Scan
-#         run: |
-#           docker run --rm \
-#           -v /var/run/docker.sock:/var/run/docker.sock \
-#           aquasec/trivy:0.69.1 \
-#           image \
-#           --exit-code 0 \
-#           --severity HIGH,CRITICAL \
-#           --format table \
-#           ${{ env.FULL_IMAGE }}
-
-#     # Optional: Generate JSON report for detailed analysis
-#       - name: Generate Detailed JSON Report
-#         run: |
-#           docker run --rm \
-#           -v /var/run/docker.sock:/var/run/docker.sock \
-#           -v $(pwd):/output \
-#           aquasec/trivy:0.69.1 \
-#           image \
-#           --exit-code 0 \
-#           --severity HIGH,CRITICAL \
-#           --format json \
-#           --output /output/trivy-report.json \
-#           ${{ env.FULL_IMAGE }}
-
-#     # Upload JSON report for detailed review
-#       - name: Upload Trivy Report
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: trivy-scan-report
-#           path: trivy-report.json
-#           retention-days: 7
-
-#   # security-scan:
-#   #   name: 🔒 Trivy Security Scan
-#   #   runs-on: ubuntu-latest
-#   #   needs: build
-#   #   outputs:
-#   #     scan-result: ${{ steps.set-result.outputs.result }}  # 'pass' or 'fail'
-
-#       # ── 5. Also generate a human-readable table summary for logs ──
-#       # - name: Trivy Table Summary (Logs)
-#       #   uses: aquasecurity/trivy-action@0.33.1
-#       #   with:
-#       #     image-ref: ${{ env.FULL_IMAGE }}
-#       #     format: table
-#       #     severity: HIGH,CRITICAL
-#       #     exit-code: '0'
-#       #     ignore-unfixed: false
-#       #     vuln-type: os,library
-
-
-
-#           #       # ── 6. Parse report — count HIGH/CRITICAL vulns and set outputs ──
-# #       - name: Parse Trivy Report & Set Result
-# #         id: set-result
-# #         run: |
-# #           # Count HIGH and CRITICAL vulnerabilities
-# #           HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
-# #           CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
-# #           TOTAL=$((HIGH + CRITICAL))
-
-# #           echo "HIGH vulnerabilities: $HIGH"
-# #           echo "CRITICAL vulnerabilities: $CRITICAL"
-# #           echo "Total HIGH/CRITICAL: $TOTAL"
-
-# #           # Export as env vars for the Slack notification step
-# #           echo "HIGH_COUNT=$HIGH"       >> $GITHUB_ENV
-# #           echo "CRITICAL_COUNT=$CRITICAL" >> $GITHUB_ENV
-# #           echo "TOTAL_VULNS=$TOTAL"     >> $GITHUB_ENV
-
-# #           # Set job output based on findings
-# #           if [ "$TOTAL" -gt 0 ]; then
-# #             echo "result=fail" >> $GITHUB_OUTPUT
-# #             echo "❌ Scan FAILED — $TOTAL HIGH/CRITICAL vulnerabilities found."
-# #           else
-# #             echo "result=pass" >> $GITHUB_OUTPUT
-# #             echo "✅ Scan PASSED — No HIGH/CRITICAL vulnerabilities found."
-# #           fi
-
-# #       # ── 7. Upload the JSON report as an artifact (always, even on failure) ──
-# #       - name: Upload Trivy JSON Report
-# #         if: always()
-# #         uses: actions/upload-artifact@v4
-# #         with:
-# #           name: trivy-vulnerability-report
-# #           path: ${{ env.TRIVY_REPORT_PATH }}
-# #           retention-days: 30            # Retain for 30 days for audit/compliance
-
-# #       # ── 8. Fail the job if vulnerabilities were found (explicit failure gate) ──
-# #       - name: Enforce Security Gate
-# #         if: steps.set-result.outputs.result == 'fail'
-# #         run: |
-# #           echo "::error::Security gate FAILED. ${{ env.TOTAL_VULNS }} HIGH/CRITICAL vulnerabilities detected."
-# #           echo "::error::HIGH: ${{ env.HIGH_COUNT }} | CRITICAL: ${{ env.CRITICAL_COUNT }}"
-# #           echo "Review the Trivy report artifact for full details."
-# #           exit 1
-
-#   # ════════════════════════════════════════════
-#   # JOB 3: PUBLISH IMAGE
-#   # Only runs if scan passed. Pushes image to Docker Hub.
-#   # ════════════════════════════════════════════
-#   publish:
-#     name: 📦 Push Image to Registry
-#     runs-on: ubuntu-latest
-#     needs: security-scan              # Only runs if security-scan succeeds (exit 0)
-
-#     steps:
-#       - name: Checkout Repository
-#         uses: actions/checkout@v4
-
-#       - name: Set Up Docker Buildx
-#         uses: docker/setup-buildx-action@v3
-
-#       - name: Log In to Docker Hub
-#         uses: docker/login-action@v3
-#         with:
-#           username: ${{ secrets.DOCKER_USERNAME }}
-#           password: ${{ secrets.DOCKER_TOKEN }}
-
-#       # ── Rebuild + push. Buildx layer cache means this is near-instant. ──
-#       # NOTE: We rebuild (not re-upload tar) because image tars don't preserve
-#       # Buildx multi-platform manifests and provenance attestations cleanly.
-#       - name: Build & Push Verified Image
-#         uses: docker/build-push-action@v5
-#         with:
-#           context: ./app
-#           file: ./app/Dockerfile
-#           platforms: linux/amd64
-#           push: true                    # ← Push ONLY after scan passed
-#           tags: |
-#             ${{ env.FULL_IMAGE }}
-#             ${{ env.IMAGE_NAME }}:latest
-#           cache-from: type=gha          # Reuses cached layers from build job
-#           cache-to: type=gha,mode=max
-#           provenance: true              # Generate SLSA provenance attestation
-#           sbom: true                    # Generate Software Bill of Materials
-
-#       - name: Image Push Confirmed
-#         run: |
-#           echo "✅ Image pushed: ${{ env.FULL_IMAGE }}"
-#           echo "✅ Image pushed: ${{ env.IMAGE_NAME }}:latest"
-
-
 name: Secure CI/CD Pipeline
 
 on:
@@ -486,67 +227,67 @@ jobs:
           echo "📦 Tag: ${{ env.FULL_IMAGE }}"
           echo "📦 Tag: ${{ env.IMAGE_NAME }}:latest"
 
-  # # ════════════════════════════════════════════
-  # # JOB 4: DEPLOY TO ARGOCD (NEW)
-  # # Updates the ArgoCD application with the new image
-  # # ════════════════════════════════════════════
-  # deploy:
-  #   name: 🚀 Deploy to ArgoCD
-  #   runs-on: ubuntu-latest
-  #   needs: publish
-  #   if: always() && needs.publish.result == 'success'
-  #   environment: production  # Optional: Add environment protection
+  # ════════════════════════════════════════════
+  # JOB 4: DEPLOY TO ARGOCD (NEW)
+  # Updates the ArgoCD application with the new image
+  # ════════════════════════════════════════════
+  deploy:
+    name: 🚀 Deploy to ArgoCD
+    runs-on: ubuntu-latest
+    needs: publish
+    # if: always() && needs.publish.result == 'success'
+    environment: production  # Optional: Add environment protection
 
-  #   steps:
-  #     - name: Checkout Repository
-  #       uses: actions/checkout@v4
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-  #     # Install ArgoCD CLI
-  #     - name: Install ArgoCD CLI
-  #       run: |
-  #         curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-  #         chmod +x argocd
-  #         sudo mv argocd /usr/local/bin/
-  #         argocd version --client
+      # Install ArgoCD CLI
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
+          argocd version --client
 
-  #     # Login to ArgoCD server
-  #     - name: Login to ArgoCD
-  #       run: |
-  #         argocd login ${{ env.ARGOCD_SERVER }} \
-  #           --username ${{ secrets.ARGOCD_USERNAME }} \
-  #           --password ${{ secrets.ARGOCD_PASSWORD }} \
-  #           --insecure  # Remove if using TLS/HTTPS
+      # Login to ArgoCD server
+      - name: Login to ArgoCD
+        run: |
+          argocd login ${{ env.ARGOCD_SERVER }} \
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            --insecure  # Remove if using TLS/HTTPS
 
-  #     # Sync the ArgoCD application
-  #     - name: Sync ArgoCD Application
-  #       run: |
-  #         echo "🔄 Syncing application: ${{ env.ARGOCD_APP_NAME }}"
-  #         argocd app sync ${{ env.ARGOCD_APP_NAME }} \
-  #           --prune \
-  #           --force \
-  #           --wait
+      # Sync the ArgoCD application
+      - name: Sync ArgoCD Application
+        run: |
+          echo "🔄 Syncing application: ${{ env.ARGOCD_APP_NAME }}"
+          argocd app sync ${{ env.ARGOCD_APP_NAME }} \
+            --prune \
+            --force \
+            --wait
 
-  #     # Verify deployment status
-  #     - name: Verify Deployment
-  #       run: |
-  #         echo "✅ Verifying deployment status..."
-  #         STATUS=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.sync.status')
-  #         HEALTH=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.health.status')
+      # Verify deployment status
+      - name: Verify Deployment
+        run: |
+          echo "✅ Verifying deployment status..."
+          STATUS=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.sync.status')
+          HEALTH=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.health.status')
           
-  #         echo "Sync Status: $STATUS"
-  #         echo "Health Status: $HEALTH"
+          echo "Sync Status: $STATUS"
+          echo "Health Status: $HEALTH"
           
-  #         if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
-  #           echo "✅ Application deployed successfully!"
-  #         else
-  #           echo "⚠️ Application deployed but not fully healthy. Check ArgoCD UI."
-  #         fi
+          if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+            echo "✅ Application deployed successfully!"
+          else
+            echo "⚠️ Application deployed but not fully healthy. Check ArgoCD UI."
+          fi
 
-  #     # Optional: Get application details
-  #     - name: Get Application Details
-  #       run: |
-  #         echo "📊 Application Details:"
-  #         argocd app get ${{ env.ARGOCD_APP_NAME }}
+      # Optional: Get application details
+      - name: Get Application Details
+        run: |
+          echo "📊 Application Details:"
+          argocd app get ${{ env.ARGOCD_APP_NAME }}
 
   # # ════════════════════════════════════════════
   # # OPTIONAL JOB 5: NOTIFICATIONS
