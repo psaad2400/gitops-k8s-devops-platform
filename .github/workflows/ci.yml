@@ -256,28 +256,32 @@ jobs:
           sudo chmod +x /usr/local/bin/argocd
           argocd version --client
 
-      # - name: Debug Network Connectivity
-      #   run: |
-      #     echo "Testing connection to $ARGOCD_SERVER"
-      #     curl -vvk https://$ARGOCD_SERVER
-      #     ping -c 3 $(echo $ARGOCD_SERVER | cut -d':' -f1)
+      - name: Debug ArgoCD Environment
+        run: |
+          echo "=== ARGOCD_SERVER value ==="
+          echo "${{ env.ARGOCD_SERVER }}"
+    
+          echo "=== Existing argocd config ==="
+          cat ~/.config/argocd/config || echo "No config file"
+    
+          echo "=== Removing config ==="
+          rm -f ~/.config/argocd/config
+          cat ~/.config/argocd/config || echo "Config deleted successfully"
+    
+          echo "=== All env vars with proxy/argocd ==="
+          env | grep -iE "proxy|argocd|grpc"
+    
+          echo "=== Testing direct connectivity ==="
+          curl -vk https://127.0.0.1:30008/healthz 2>&1 | tail -20
 
-      # Login to ArgoCD server
       - name: Login to ArgoCD
         run: |
           rm -f ~/.config/argocd/config
           argocd login 127.0.0.1:30008 \
-            --username ${{ secrets.ARGOCD_USERNAME }} \
-            --password ${{ secrets.ARGOCD_PASSWORD }} \
-            --insecure
-      # - name: Login to ArgoCD
-      #   run: |
-      #     unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
-      #     argocd login 127.0.0.1:30008 \
-      #     --username ${{ secrets.ARGOCD_USERNAME }} \
-      #     --password ${{ secrets.ARGOCD_PASSWORD }} \
-      #     --insecure
-      
+          --username ${{ secrets.ARGOCD_USERNAME }} \
+          --password ${{ secrets.ARGOCD_PASSWORD }} \
+          --insecure \
+          --grpc-web=false      
       # - name: Login to ArgoCD
       #   run: |
       #     argocd login ${{ env.ARGOCD_SERVER }} \
