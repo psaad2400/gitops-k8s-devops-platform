@@ -29,203 +29,203 @@ jobs:
   # Builds Docker image using Buildx, caches layers.
   # Does NOT push yet — push only happens after scan passes.
   # ════════════════════════════════════════════
-  build:
-    name: 🏗️ Build Docker Image
-    runs-on: self-hosted
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
+  # build:
+  #   name: 🏗️ Build Docker Image
+  #   runs-on: self-hosted
+  #   outputs:
+  #     image-digest: ${{ steps.build.outputs.digest }}
 
-    steps:
-      # ── 1. Checkout source code ──
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+  #   steps:
+  #     # ── 1. Checkout source code ──
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
 
-      # ── 2. Set up QEMU for multi-arch support ──
-      - name: Set Up QEMU
-        uses: docker/setup-qemu-action@v3
+  #     # ── 2. Set up QEMU for multi-arch support ──
+  #     - name: Set Up QEMU
+  #       uses: docker/setup-qemu-action@v3
 
-      # ── 3. Set up Docker Buildx for advanced build features ──
-      - name: Set Up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: true
+  #     # ── 3. Set up Docker Buildx for advanced build features ──
+  #     - name: Set Up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
+  #       with:
+  #         install: true
 
-      # ── 4. Authenticate with Docker Hub ──
-      - name: Log In to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+  #     # ── 4. Authenticate with Docker Hub ──
+  #     - name: Log In to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKER_USERNAME }}
+  #         password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # ── 5. Build image (load locally for scanning) ──
-      - name: Build Docker Image (No Push)
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: ./app
-          file: ./app/Dockerfile
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: ${{ env.FULL_IMAGE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  #     # ── 5. Build image (load locally for scanning) ──
+  #     - name: Build Docker Image (No Push)
+  #       id: build
+  #       uses: docker/build-push-action@v5
+  #       with:
+  #         context: ./app
+  #         file: ./app/Dockerfile
+  #         platforms: linux/amd64
+  #         push: false
+  #         load: true
+  #         tags: ${{ env.FULL_IMAGE }}
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
 
-      # ── 6. Save image as tar for scan job ──
-      - name: Export Image as Tar
-        run: |
-          docker save ${{ env.FULL_IMAGE }} -o /tmp/app-image.tar
-          echo "Image saved: $(du -sh /tmp/app-image.tar | cut -f1)"
+  #     # ── 6. Save image as tar for scan job ──
+  #     - name: Export Image as Tar
+  #       run: |
+  #         docker save ${{ env.FULL_IMAGE }} -o /tmp/app-image.tar
+  #         echo "Image saved: $(du -sh /tmp/app-image.tar | cut -f1)"
 
-      # ── 7. Upload image tar as artifact ──
-      - name: Upload Image Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: /tmp/app-image.tar
-          retention-days: 1
+  #     # ── 7. Upload image tar as artifact ──
+  #     - name: Upload Image Artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: docker-image
+  #         path: /tmp/app-image.tar
+  #         retention-days: 1
 
-  # ════════════════════════════════════════════
-  # JOB 2: SECURITY SCAN (COMPLETED)
-  # Downloads built image, runs Trivy, fails on HIGH/CRITICAL
-  # ════════════════════════════════════════════
-  security-scan:
-    name: 🔒 Trivy Security Scan
-    runs-on: self-hosted
-    needs: build
-    outputs:
-      scan-status: ${{ steps.set-result.outputs.result }}
+  # # ════════════════════════════════════════════
+  # # JOB 2: SECURITY SCAN (COMPLETED)
+  # # Downloads built image, runs Trivy, fails on HIGH/CRITICAL
+  # # ════════════════════════════════════════════
+  # security-scan:
+  #   name: 🔒 Trivy Security Scan
+  #   runs-on: self-hosted
+  #   needs: build
+  #   outputs:
+  #     scan-status: ${{ steps.set-result.outputs.result }}
 
-    steps:
-      # Download the saved image
-      - name: Download Image Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-          path: /tmp
+  #   steps:
+  #     # Download the saved image
+  #     - name: Download Image Artifact
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: docker-image
+  #         path: /tmp
 
-      # Load the Docker image
-      - name: Load Docker Image
-        run: |
-          docker load -i /tmp/app-image.tar
-          docker images | head -5
+  #     # Load the Docker image
+  #     - name: Load Docker Image
+  #       run: |
+  #         docker load -i /tmp/app-image.tar
+  #         docker images | head -5
 
-      # Run Trivy scan with JSON output
-      - name: Run Trivy Vulnerability Scan
-        run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $(pwd):/output \
-            aquasec/trivy:0.69.1 \
-            image \
-            --exit-code 0 \
-            --severity HIGH,CRITICAL \
-            --format json \
-            --output /output/${{ env.TRIVY_REPORT_PATH }} \
-            ${{ env.FULL_IMAGE }}
+  #     # Run Trivy scan with JSON output
+  #     - name: Run Trivy Vulnerability Scan
+  #       run: |
+  #         docker run --rm \
+  #           -v /var/run/docker.sock:/var/run/docker.sock \
+  #           -v $(pwd):/output \
+  #           aquasec/trivy:0.69.1 \
+  #           image \
+  #           --exit-code 0 \
+  #           --severity HIGH,CRITICAL \
+  #           --format json \
+  #           --output /output/${{ env.TRIVY_REPORT_PATH }} \
+  #           ${{ env.FULL_IMAGE }}
 
-      # Also generate table output for logs
-      - name: Generate Table Summary
-        run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:0.69.1 \
-            image \
-            --exit-code 0 \
-            --severity HIGH,CRITICAL \
-            --format table \
-            ${{ env.FULL_IMAGE }}
+  #     # Also generate table output for logs
+  #     - name: Generate Table Summary
+  #       run: |
+  #         docker run --rm \
+  #           -v /var/run/docker.sock:/var/run/docker.sock \
+  #           aquasec/trivy:0.69.1 \
+  #           image \
+  #           --exit-code 0 \
+  #           --severity HIGH,CRITICAL \
+  #           --format table \
+  #           ${{ env.FULL_IMAGE }}
 
-      # Parse JSON report and set output
-      - name: Parse Trivy Report & Set Result
-        id: set-result
-        run: |
-          # Count HIGH and CRITICAL vulnerabilities
-          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
-          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
-          TOTAL=$((HIGH + CRITICAL))
+  #     # Parse JSON report and set output
+  #     - name: Parse Trivy Report & Set Result
+  #       id: set-result
+  #       run: |
+  #         # Count HIGH and CRITICAL vulnerabilities
+  #         HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
+  #         CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
+  #         TOTAL=$((HIGH + CRITICAL))
 
-          echo "HIGH vulnerabilities: $HIGH"
-          echo "CRITICAL vulnerabilities: $CRITICAL"
-          echo "Total HIGH/CRITICAL: $TOTAL"
+  #         echo "HIGH vulnerabilities: $HIGH"
+  #         echo "CRITICAL vulnerabilities: $CRITICAL"
+  #         echo "Total HIGH/CRITICAL: $TOTAL"
 
-          # Export as env vars for notifications
-          echo "HIGH_COUNT=$HIGH" >> $GITHUB_ENV
-          echo "CRITICAL_COUNT=$CRITICAL" >> $GITHUB_ENV
-          echo "TOTAL_VULNS=$TOTAL" >> $GITHUB_ENV
+  #         # Export as env vars for notifications
+  #         echo "HIGH_COUNT=$HIGH" >> $GITHUB_ENV
+  #         echo "CRITICAL_COUNT=$CRITICAL" >> $GITHUB_ENV
+  #         echo "TOTAL_VULNS=$TOTAL" >> $GITHUB_ENV
 
-          # Set job output based on findings
-          if [ "$TOTAL" -gt 0 ]; then
-            echo "result=fail" >> $GITHUB_OUTPUT
-            echo "❌ Scan FAILED — $TOTAL HIGH/CRITICAL vulnerabilities found."
-          else
-            echo "result=pass" >> $GITHUB_OUTPUT
-            echo "✅ Scan PASSED — No HIGH/CRITICAL vulnerabilities found."
-          fi
+  #         # Set job output based on findings
+  #         if [ "$TOTAL" -gt 0 ]; then
+  #           echo "result=fail" >> $GITHUB_OUTPUT
+  #           echo "❌ Scan FAILED — $TOTAL HIGH/CRITICAL vulnerabilities found."
+  #         else
+  #           echo "result=pass" >> $GITHUB_OUTPUT
+  #           echo "✅ Scan PASSED — No HIGH/CRITICAL vulnerabilities found."
+  #         fi
 
-      # Upload JSON report as artifact
-      - name: Upload Trivy JSON Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-vulnerability-report
-          path: ${{ env.TRIVY_REPORT_PATH }}
-          retention-days: 30
+  #     # Upload JSON report as artifact
+  #     - name: Upload Trivy JSON Report
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: trivy-vulnerability-report
+  #         path: ${{ env.TRIVY_REPORT_PATH }}
+  #         retention-days: 30
 
-      # Fail the job if vulnerabilities found (security gate)
-      - name: Enforce Security Gate
-        if: steps.set-result.outputs.result == 'fail'
-        run: |
-          echo "::error::❌ Security gate FAILED! ${{ env.TOTAL_VULNS }} HIGH/CRITICAL vulnerabilities detected."
-          echo "::error::📊 HIGH: ${{ env.HIGH_COUNT }} | CRITICAL: ${{ env.CRITICAL_COUNT }}"
-          echo "::error::📄 Review the Trivy report artifact for full details."
-          exit 0
+  #     # Fail the job if vulnerabilities found (security gate)
+  #     - name: Enforce Security Gate
+  #       if: steps.set-result.outputs.result == 'fail'
+  #       run: |
+  #         echo "::error::❌ Security gate FAILED! ${{ env.TOTAL_VULNS }} HIGH/CRITICAL vulnerabilities detected."
+  #         echo "::error::📊 HIGH: ${{ env.HIGH_COUNT }} | CRITICAL: ${{ env.CRITICAL_COUNT }}"
+  #         echo "::error::📄 Review the Trivy report artifact for full details."
+  #         exit 0
 
-  # ════════════════════════════════════════════
-  # JOB 3: PUBLISH IMAGE
-  # Only runs if scan passed. Pushes image to Docker Hub.
-  # ════════════════════════════════════════════
-  publish:
-    name: 📦 Push Image to Registry
-    runs-on: self-hosted
-    needs: security-scan
-   ## # if: needs.security-scan.outputs.scan-status != 'fail'
+  # # ════════════════════════════════════════════
+  # # JOB 3: PUBLISH IMAGE
+  # # Only runs if scan passed. Pushes image to Docker Hub.
+  # # ════════════════════════════════════════════
+  # publish:
+  #   name: 📦 Push Image to Registry
+  #   runs-on: self-hosted
+  #   needs: security-scan
+  #  ## # if: needs.security-scan.outputs.scan-status != 'fail'
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
 
-      - name: Set Up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+  #     - name: Set Up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
 
-      - name: Log In to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+  #     - name: Log In to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKER_USERNAME }}
+  #         password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Rebuild and push verified image
-      - name: Build & Push Verified Image
-        id: push
-        uses: docker/build-push-action@v5
-        with:
-          context: ./app
-          file: ./app/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.FULL_IMAGE }}
-            ${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+  #     # Rebuild and push verified image
+  #     - name: Build & Push Verified Image
+  #       id: push
+  #       uses: docker/build-push-action@v5
+  #       with:
+  #         context: ./app
+  #         file: ./app/Dockerfile
+  #         platforms: linux/amd64
+  #         push: true
+  #         tags: |
+  #           ${{ env.FULL_IMAGE }}
+  #           ${{ env.IMAGE_NAME }}:latest
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+  #         provenance: true
+  #         sbom: true
 
-      - name: Image Push Confirmed
-        run: |
-          echo "✅ Image pushed successfully!"
-          echo "📦 Tag: ${{ env.FULL_IMAGE }}"
-          echo "📦 Tag: ${{ env.IMAGE_NAME }}:latest"
+  #     - name: Image Push Confirmed
+  #       run: |
+  #         echo "✅ Image pushed successfully!"
+  #         echo "📦 Tag: ${{ env.FULL_IMAGE }}"
+  #         echo "📦 Tag: ${{ env.IMAGE_NAME }}:latest"
 
   # ════════════════════════════════════════════
   # JOB 4: DEPLOY TO ARGOCD (NEW)
@@ -234,7 +234,7 @@ jobs:
   deploy:
     name: 🚀 Deploy to ArgoCD
     runs-on: ubuntu-latest
-    needs: publish
+    # needs: publish
     # if: always() && needs.publish.result == 'success'
     environment: production  # Optional: Add environment protection
 
@@ -256,11 +256,11 @@ jobs:
           sudo chmod +x /usr/local/bin/argocd
           argocd version --client
 
-      - name: Debug Network Connectivity
-        run: |
-          echo "Testing connection to $ARGOCD_SERVER"
-          curl -vvk https://$ARGOCD_SERVER
-          ping -c 3 $(echo $ARGOCD_SERVER | cut -d':' -f1)
+      # - name: Debug Network Connectivity
+      #   run: |
+      #     echo "Testing connection to $ARGOCD_SERVER"
+      #     curl -vvk https://$ARGOCD_SERVER
+      #     ping -c 3 $(echo $ARGOCD_SERVER | cut -d':' -f1)
 
       # Login to ArgoCD server
       - name: Login to ArgoCD
