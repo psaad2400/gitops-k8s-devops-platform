@@ -31,7 +31,7 @@ jobs:
   # ════════════════════════════════════════════
   build:
     name: 🏗️ Build Docker Image
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
 
@@ -91,7 +91,7 @@ jobs:
   # ════════════════════════════════════════════
   security-scan:
     name: 🔒 Trivy Security Scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: build
     outputs:
       scan-status: ${{ steps.set-result.outputs.result }}
@@ -187,7 +187,7 @@ jobs:
   # ════════════════════════════════════════════
   publish:
     name: 📦 Push Image to Registry
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: security-scan
    ## # if: needs.security-scan.outputs.scan-status != 'fail'
 
@@ -262,8 +262,7 @@ jobs:
           argocd login ${{ env.ARGOCD_SERVER }} \
             --username ${{ secrets.ARGOCD_USERNAME }} \
             --password ${{ secrets.ARGOCD_PASSWORD }} \
-            --insecure \  # Remove if using TLS/HTTPS
-            --grpc-web
+            --insecure  # Remove if using TLS/HTTPS
 
       # Sync the ArgoCD application
       - name: Sync ArgoCD Application
