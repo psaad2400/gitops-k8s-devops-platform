@@ -265,11 +265,18 @@ jobs:
       # Login to ArgoCD server
       - name: Login to ArgoCD
         run: |
-          unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+          rm -f ~/.config/argocd/config
           argocd login 127.0.0.1:30008 \
-          --username ${{ secrets.ARGOCD_USERNAME }} \
-          --password ${{ secrets.ARGOCD_PASSWORD }} \
-          --insecure
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            --insecure
+      # - name: Login to ArgoCD
+      #   run: |
+      #     unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+      #     argocd login 127.0.0.1:30008 \
+      #     --username ${{ secrets.ARGOCD_USERNAME }} \
+      #     --password ${{ secrets.ARGOCD_PASSWORD }} \
+      #     --insecure
       
       # - name: Login to ArgoCD
       #   run: |
