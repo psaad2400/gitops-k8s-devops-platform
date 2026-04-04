@@ -330,7 +330,7 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
+#
       # Trigger ArgoCD sync via kubectl annotation
       - name: Trigger ArgoCD Sync
         run: |
