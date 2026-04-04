@@ -231,95 +231,178 @@ jobs:
   # JOB 4: DEPLOY TO ARGOCD (NEW)
   # Updates the ArgoCD application with the new image
   # ════════════════════════════════════════════
+  # deploy:
+  #   name: 🚀 Deploy to ArgoCD
+  #   runs-on: ubuntu-latest
+  #   # needs: publish
+  #   # if: always() && needs.publish.result == 'success'
+  #   environment: production  # Optional: Add environment protection
+
+  #   steps:
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
+
+  #     # # Install ArgoCD CLI
+  #     # - name: Install ArgoCD CLI
+  #     #   run: |
+  #     #     curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+  #     #     chmod +x argocd
+  #     #     sudo mv argocd /usr/local/bin/
+  #     #     argocd version --client
+
+  #     - name: Install ArgoCD CLI
+  #       run: |
+  #         curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 | sudo tee /usr/local/bin/argocd > /dev/null
+  #         sudo chmod +x /usr/local/bin/argocd
+  #         argocd version --client
+
+  #     - name: Debug ArgoCD Environment
+  #       run: |
+  #         echo "=== ARGOCD_SERVER value ==="
+  #         echo "${{ env.ARGOCD_SERVER }}"
+    
+  #         echo "=== Existing argocd config ==="
+  #         cat ~/.config/argocd/config || echo "No config file"
+    
+  #         echo "=== Removing config ==="
+  #         rm -f ~/.config/argocd/config
+  #         cat ~/.config/argocd/config || echo "Config deleted successfully"
+    
+  #         echo "=== All env vars with proxy/argocd ==="
+  #         env | grep -iE "proxy|argocd|grpc"
+    
+  #         echo "=== Testing direct connectivity ==="
+  #         curl -vk https://127.0.0.1:30008/healthz 2>&1 | tail -20
+
+  #     - name: Login to ArgoCD
+  #       run: |
+  #         rm -f ~/.config/argocd/config
+  #         argocd login 127.0.0.1:30008 \
+  #         --username ${{ secrets.ARGOCD_USERNAME }} \
+  #         --password ${{ secrets.ARGOCD_PASSWORD }} \
+  #         --insecure \
+  #         --grpc-web=false      
+  #     # - name: Login to ArgoCD
+  #     #   run: |
+  #     #     argocd login ${{ env.ARGOCD_SERVER }} \
+  #     #       --username ${{ secrets.ARGOCD_USERNAME }} \
+  #     #       --password ${{ secrets.ARGOCD_PASSWORD }} \
+  #     #       --insecure  # Remove if using TLS/HTTPS
+
+  #     # Sync the ArgoCD application
+  #     - name: Sync ArgoCD Application
+  #       run: |
+  #         echo "🔄 Syncing application: ${{ env.ARGOCD_APP_NAME }}"
+  #         argocd app sync ${{ env.ARGOCD_APP_NAME }} \
+  #           --prune \
+  #           --force \
+  #           --wait
+
+  #     # Verify deployment status
+  #     - name: Verify Deployment
+  #       run: |
+  #         echo "✅ Verifying deployment status..."
+  #         STATUS=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.sync.status')
+  #         HEALTH=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.health.status')
+          
+  #         echo "Sync Status: $STATUS"
+  #         echo "Health Status: $HEALTH"
+          
+  #         if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+  #           echo "✅ Application deployed successfully!"
+  #         else
+  #           echo "⚠️ Application deployed but not fully healthy. Check ArgoCD UI."
+  #         fi
+
+  #     # Optional: Get application details
+  #     - name: Get Application Details
+  #       run: |
+  #         echo "📊 Application Details:"
+  #         argocd app get ${{ env.ARGOCD_APP_NAME }}
+
   deploy:
     name: 🚀 Deploy to ArgoCD
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     # needs: publish
     # if: always() && needs.publish.result == 'success'
-    environment: production  # Optional: Add environment protection
+    environment: production
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # # Install ArgoCD CLI
-      # - name: Install ArgoCD CLI
-      #   run: |
-      #     curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-      #     chmod +x argocd
-      #     sudo mv argocd /usr/local/bin/
-      #     argocd version --client
-
-      - name: Install ArgoCD CLI
+      # Trigger ArgoCD sync via kubectl annotation
+      - name: Trigger ArgoCD Sync
         run: |
-          curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 | sudo tee /usr/local/bin/argocd > /dev/null
-          sudo chmod +x /usr/local/bin/argocd
-          argocd version --client
+          echo "🔄 Triggering sync for: ${{ env.ARGOCD_APP_NAME }}"
+          kubectl annotate application ${{ env.ARGOCD_APP_NAME }} \
+            -n argocd \
+            argocd.argoproj.io/refresh=hard \
+            --overwrite
 
-      - name: Debug ArgoCD Environment
+      # Wait for sync to complete
+      - name: Wait for Sync
         run: |
-          echo "=== ARGOCD_SERVER value ==="
-          echo "${{ env.ARGOCD_SERVER }}"
-    
-          echo "=== Existing argocd config ==="
-          cat ~/.config/argocd/config || echo "No config file"
-    
-          echo "=== Removing config ==="
-          rm -f ~/.config/argocd/config
-          cat ~/.config/argocd/config || echo "Config deleted successfully"
-    
-          echo "=== All env vars with proxy/argocd ==="
-          env | grep -iE "proxy|argocd|grpc"
-    
-          echo "=== Testing direct connectivity ==="
-          curl -vk https://127.0.0.1:30008/healthz 2>&1 | tail -20
+          echo "⏳ Waiting for ArgoCD to sync..."
+          for i in $(seq 1 24); do
+            STATUS=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} \
+              -n argocd \
+              -o jsonpath='{.status.sync.status}')
+            HEALTH=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} \
+              -n argocd \
+              -o jsonpath='{.status.health.status}')
 
-      - name: Login to ArgoCD
-        run: |
-          rm -f ~/.config/argocd/config
-          argocd login 127.0.0.1:30008 \
-          --username ${{ secrets.ARGOCD_USERNAME }} \
-          --password ${{ secrets.ARGOCD_PASSWORD }} \
-          --insecure \
-          --grpc-web=false      
-      # - name: Login to ArgoCD
-      #   run: |
-      #     argocd login ${{ env.ARGOCD_SERVER }} \
-      #       --username ${{ secrets.ARGOCD_USERNAME }} \
-      #       --password ${{ secrets.ARGOCD_PASSWORD }} \
-      #       --insecure  # Remove if using TLS/HTTPS
+            echo "Attempt $i/24 — Sync: $STATUS | Health: $HEALTH"
 
-      # Sync the ArgoCD application
-      - name: Sync ArgoCD Application
-        run: |
-          echo "🔄 Syncing application: ${{ env.ARGOCD_APP_NAME }}"
-          argocd app sync ${{ env.ARGOCD_APP_NAME }} \
-            --prune \
-            --force \
-            --wait
+            if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+              echo "✅ Application synced and healthy!"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "❌ Timed out waiting for sync (4 minutes)"
+          exit 1
 
       # Verify deployment status
       - name: Verify Deployment
         run: |
           echo "✅ Verifying deployment status..."
-          STATUS=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.sync.status')
-          HEALTH=$(argocd app get ${{ env.ARGOCD_APP_NAME }} -o json | jq -r '.status.health.status')
-          
-          echo "Sync Status: $STATUS"
+          STATUS=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} \
+            -n argocd \
+            -o jsonpath='{.status.sync.status}')
+          HEALTH=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} \
+            -n argocd \
+            -o jsonpath='{.status.health.status}')
+          MESSAGE=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} \
+            -n argocd \
+            -o jsonpath='{.status.operationState.message}')
+
+          echo "Sync Status  : $STATUS"
           echo "Health Status: $HEALTH"
-          
+          echo "Message      : $MESSAGE"
+
           if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
             echo "✅ Application deployed successfully!"
           else
             echo "⚠️ Application deployed but not fully healthy. Check ArgoCD UI."
           fi
 
-      # Optional: Get application details
+      # Get application details
       - name: Get Application Details
         run: |
           echo "📊 Application Details:"
-          argocd app get ${{ env.ARGOCD_APP_NAME }}
+          kubectl get application ${{ env.ARGOCD_APP_NAME }} \
+            -n argocd \
+            -o wide
 
+          echo ""
+          echo "📦 Resources:"
+          kubectl get application ${{ env.ARGOCD_APP_NAME }} \
+            -n argocd \
+            -o jsonpath='{range .status.resources[*]}{.kind}/{.name} — {.status}{"\n"}{end}'
+  
   # # ════════════════════════════════════════════
   # # OPTIONAL JOB 5: NOTIFICATIONS
   # # Send Slack/Teams notifications about pipeline status
