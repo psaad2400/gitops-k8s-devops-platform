@@ -268,8 +268,7 @@ jobs:
           argocd login ${{ env.ARGOCD_SERVER }} \
             --username ${{ secrets.ARGOCD_USERNAME }} \
             --password ${{ secrets.ARGOCD_PASSWORD }} \
-            --insecure \ # Remove if using TLS/HTTPS
-            --grpc-web
+            --insecure  # Remove if using TLS/HTTPS
 
       # Sync the ArgoCD application
       - name: Sync ArgoCD Application
