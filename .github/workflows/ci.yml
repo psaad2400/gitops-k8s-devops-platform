@@ -446,29 +446,32 @@ jobs:
       high-count:  ${{ steps.set-result.outputs.high }}
       crit-count:  ${{ steps.set-result.outputs.critical }}
       total-count: ${{ steps.set-result.outputs.total }}
-
+ 
     steps:
       - name: Download Image Artifact
         uses: actions/download-artifact@v4
         with:
           name: docker-image
           path: /tmp
-
+ 
       - name: Load Docker Image
         run: docker load -i /tmp/app-image.tar
-
+ 
+      # FIX 1: Use $GITHUB_WORKSPACE explicitly so the mount path is
+      # deterministic — $(pwd) can differ depending on how the runner
+      # sets up the working directory for each step.
       - name: Run Trivy Scan (JSON output)
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $(pwd):/output \
+            -v $GITHUB_WORKSPACE:/output \
             aquasec/trivy:0.69.1 image \
             --exit-code 0 \
             --severity HIGH,CRITICAL \
             --format json \
             --output /output/${{ env.TRIVY_REPORT_PATH }} \
             ${{ env.SHA_TAG }}
-
+ 
       - name: Run Trivy Scan (table log)
         run: |
           docker run --rm \
@@ -478,35 +481,87 @@ jobs:
             --severity HIGH,CRITICAL \
             --format table \
             ${{ env.SHA_TAG }}
-
+ 
+      # FIX 2: Verify the report actually exists and is valid JSON
+      # before parsing — if jq silently gets 0 due to a bad file,
+      # the gate never triggers.
+      - name: Verify Report Exists
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}" ]; then
+            echo "❌ Trivy report not found at $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+            echo "📁 Files in workspace:"
+            ls -la $GITHUB_WORKSPACE/
+            exit 1
+          fi
+ 
+          # Validate it's non-empty JSON
+          FILE_SIZE=$(stat -c%s "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}")
+          echo "Report size: $FILE_SIZE bytes"
+          if [ "$FILE_SIZE" -lt 10 ]; then
+            echo "❌ Report file is suspiciously small — likely empty or corrupt."
+            exit 1
+          fi
+ 
+          # Quick JSON validity check
+          jq empty "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}" || {
+            echo "❌ Report is not valid JSON"
+            cat "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+            exit 1
+          }
+ 
+          echo "✅ Report looks valid."
+ 
       - name: Parse Report & Set Outputs
         id: set-result
         run: |
-          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' \
-            ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
-          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' \
-            ${{ env.TRIVY_REPORT_PATH }} 2>/dev/null || echo "0")
+          REPORT="$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+ 
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' "$REPORT")
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "$REPORT")
           TOTAL=$((HIGH + CRITICAL))
-
-          echo "HIGH=$HIGH"         >> $GITHUB_OUTPUT
+ 
+          echo "HIGH=$HIGH"
+          echo "CRITICAL=$CRITICAL"
+          echo "TOTAL=$TOTAL"
+ 
+          # FIX 3: Write outputs explicitly and echo them back to confirm
+          echo "high=$HIGH"         >> $GITHUB_OUTPUT
           echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
           echo "total=$TOTAL"       >> $GITHUB_OUTPUT
-
+ 
           if [ "$TOTAL" -gt 0 ]; then
             echo "result=fail" >> $GITHUB_OUTPUT
-            echo "❌ Scan FAILED — HIGH: $HIGH | CRITICAL: $CRITICAL"
+            echo "❌ Scan FAILED — HIGH: $HIGH | CRITICAL: $CRITICAL | Total: $TOTAL"
           else
             echo "result=pass" >> $GITHUB_OUTPUT
             echo "✅ Scan PASSED — no HIGH/CRITICAL vulnerabilities."
           fi
-
+ 
+          # Echo outputs back for debug visibility in the runner log
+          echo "--- GITHUB_OUTPUT contents ---"
+          cat $GITHUB_OUTPUT
+ 
+      # FIX 4: Hard-fail the job itself if vulns found.
+      # This means downstream jobs with `needs: security-scan`
+      # and no `if: always()` will be SKIPPED automatically —
+      # you don't need to check scan-status in every job.
+      - name: Enforce Security Gate (hard fail)
+        run: |
+          if [ "${{ steps.set-result.outputs.result }}" = "fail" ]; then
+            echo "::error::🚨 Security gate FAILED!"
+            echo "::error::HIGH: ${{ steps.set-result.outputs.high }} | CRITICAL: ${{ steps.set-result.outputs.critical }}"
+            exit 1
+          fi
+          echo "✅ Security gate passed."
+ 
       - name: Upload Trivy JSON Report
-        if: always()
+        if: always()   # upload even on failure so you can inspect it
         uses: actions/upload-artifact@v4
         with:
           name: trivy-vulnerability-report
           path: ${{ env.TRIVY_REPORT_PATH }}
           retention-days: 30
+ 
 
   # ──────────────────────────────────────────────────────────
   # JOB 3 — PUBLISH (IMAGE PROMOTION)
