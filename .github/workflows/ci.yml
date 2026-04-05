@@ -106,28 +106,42 @@ jobs:
       # FIX 1: Use $GITHUB_WORKSPACE explicitly so the mount path is
       # deterministic — $(pwd) can differ depending on how the runner
       # sets up the working directory for each step.
-      - name: Run Trivy Scan (JSON output)
+      # - name: Run Trivy Scan (JSON output)
+      #   run: |
+      #     docker run --rm \
+      #       -v /var/run/docker.sock:/var/run/docker.sock \
+      #       -v $GITHUB_WORKSPACE:/output \
+      #       aquasec/trivy:0.69.1 image \
+      #       --exit-code 0 \
+      #       --severity HIGH,CRITICAL \
+      #       --format json \
+      #       --output /output/${{ env.TRIVY_REPORT_PATH }} \
+      #       ${{ env.SHA_TAG }}
+ 
+      # - name: Run Trivy Scan (table log)
+      #   run: |
+      #     docker run --rm \
+      #       -v /var/run/docker.sock:/var/run/docker.sock \
+      #       aquasec/trivy:0.69.1 image \
+      #       --exit-code 0 \
+      #       --severity HIGH,CRITICAL \
+      #       --format table \
+      #       ${{ env.SHA_TAG }}
+      
+      - name: 🔒 Unified Security Scan & Report
         run: |
+          # Run scan once: generates JSON, ignores unfixed, and fails (exit 1) on HIGH/CRITICAL
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v $GITHUB_WORKSPACE:/output \
             aquasec/trivy:0.69.1 image \
-            --exit-code 0 \
             --severity HIGH,CRITICAL \
+            --ignore-unfixed \
             --format json \
             --output /output/${{ env.TRIVY_REPORT_PATH }} \
+            --exit-code 1 \
             ${{ env.SHA_TAG }}
- 
-      - name: Run Trivy Scan (table log)
-        run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:0.69.1 image \
-            --exit-code 0 \
-            --severity HIGH,CRITICAL \
-            --format table \
-            ${{ env.SHA_TAG }}
-      
+            
       - name: Debug — Print Trivy Report
         if: always()
         run: |
