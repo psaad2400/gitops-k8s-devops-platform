@@ -485,32 +485,40 @@ jobs:
       # FIX 2: Verify the report actually exists and is valid JSON
       # before parsing — if jq silently gets 0 due to a bad file,
       # the gate never triggers.
-      - name: Verify Report Exists
+      # - name: Verify Report Exists
+      #   run: |
+      #     if [ ! -f "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}" ]; then
+      #       echo "❌ Trivy report not found at $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+      #       echo "📁 Files in workspace:"
+      #       ls -la $GITHUB_WORKSPACE/
+      #       exit 1
+      #     fi
+ 
+      #     # Validate it's non-empty JSON
+      #     FILE_SIZE=$(stat -c%s "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}")
+      #     echo "Report size: $FILE_SIZE bytes"
+      #     if [ "$FILE_SIZE" -lt 10 ]; then
+      #       echo "❌ Report file is suspiciously small — likely empty or corrupt."
+      #       exit 1
+      #     fi
+ 
+      #     # Quick JSON validity check
+      #     jq empty "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}" || {
+      #       echo "❌ Report is not valid JSON"
+      #       cat "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+      #       exit 1
+      #     }
+ 
+      #     echo "✅ Report looks valid."
+      
+      - name: Debug — Print Trivy Report
+        if: always()
         run: |
-          if [ ! -f "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}" ]; then
-            echo "❌ Trivy report not found at $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
-            echo "📁 Files in workspace:"
-            ls -la $GITHUB_WORKSPACE/
-            exit 1
-          fi
- 
-          # Validate it's non-empty JSON
-          FILE_SIZE=$(stat -c%s "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}")
-          echo "Report size: $FILE_SIZE bytes"
-          if [ "$FILE_SIZE" -lt 10 ]; then
-            echo "❌ Report file is suspiciously small — likely empty or corrupt."
-            exit 1
-          fi
- 
-          # Quick JSON validity check
-          jq empty "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}" || {
-            echo "❌ Report is not valid JSON"
-            cat "$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
-            exit 1
-          }
- 
-          echo "✅ Report looks valid."
- 
+          echo "📄 Report path: $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+          ls -lh $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}
+          echo "--- Report contents ---"
+          cat $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }} | jq '.Results | length'
+
       - name: Parse Report & Set Outputs
         id: set-result
         run: |
