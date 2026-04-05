@@ -1,2 +1,5 @@
 flask==2.3.3
 prometheus-flask-exporter
+# 4. Explicitly patching vulnerable sub-dependencies
+wheel>=0.46.2
+jaraco.context>=6.1.0
