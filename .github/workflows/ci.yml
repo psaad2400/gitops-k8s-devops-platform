@@ -585,42 +585,43 @@ jobs:
     name: 📦 Publish Image
     runs-on: self-hosted
     needs: security-scan
+    if: always() && needs.security-scan.result != 'cancelled'  # run even if scan failed
 
     steps:
-      - name: Download Image Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-          path: /tmp
+    - name: Download Image Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: docker-image
+        path: /tmp
 
-      - name: Load Docker Image
-        run: docker load -i /tmp/app-image.tar
+    - name: Load Docker Image
+      run: docker load -i /tmp/app-image.tar
 
-      - name: Log In to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Log In to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Always push the SHA-tagged image for full audit trail
-      - name: Push SHA-tagged Image
-        run: |
-          docker push ${{ env.SHA_TAG }}
-          echo "📤 Pushed: ${{ env.SHA_TAG }}"
+    # Always push SHA tag — even on scan failure (quarantine/audit trail)
+    - name: Push SHA-tagged Image
+      run: |
+        docker push ${{ env.SHA_TAG }}
+        echo "📤 Pushed (quarantine): ${{ env.SHA_TAG }}"
 
-      # Promote to :prod ONLY when scan passed — this is the gate
-      - name: Promote to :prod Tag
-        if: needs.security-scan.outputs.scan-status == 'pass'
-        run: |
-          docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
-          docker push ${{ env.PROD_TAG }}
-          echo "🚀 Promoted to prod: ${{ env.PROD_TAG }}"
+    # Only promote to :prod if scan passed
+    - name: Promote to :prod Tag
+      if: needs.security-scan.result == 'success'
+      run: |
+        docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
+        docker push ${{ env.PROD_TAG }}
+        echo "🚀 Promoted to prod: ${{ env.PROD_TAG }}"
 
-      - name: Log Quarantine (scan failed)
-        if: needs.security-scan.outputs.scan-status == 'fail'
-        run: |
-          echo "⚠️  Image quarantined — NOT promoted to :prod"
-          echo "🔖 Available for investigation at: ${{ env.SHA_TAG }}"
+    - name: Log Quarantine (scan failed)
+      if: needs.security-scan.result != 'success'
+      run: |
+        echo "⚠️ Scan failed — image NOT promoted to :prod"
+        echo "🔖 Quarantined at: ${{ env.SHA_TAG }}"
 
   # ──────────────────────────────────────────────────────────
   # JOB 4 — DEPLOY TO ARGOCD
@@ -630,7 +631,8 @@ jobs:
     name: 🚀 Deploy to ArgoCD
     runs-on: self-hosted
     needs: [security-scan, publish]
-    if: needs.security-scan.outputs.scan-status == 'pass'
+    # if: needs.security-scan.outputs.scan-status == 'pass'
+    if: needs.security-scan.result == 'success' && needs.publish.result == 'success'
     environment: production
 
     steps:
