@@ -366,48 +366,48 @@ jobs:
         kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd -o jsonpath='{range .status.resources[*]}{.kind}/{.name} — {.status}{"\n"}{end}'
 
           
-  # # OPTIONAL JOB 5: NOTIFICATIONS
-  # # Send Slack/Teams notifications about pipeline status
-  # # ════════════════════════════════════════════
-  # notify:
-  #   name: 📢 Send Notifications
-  #   runs-on: ubuntu-latest
-  #   needs: [security-scan, publish, deploy]
-  #   if: always()
+  # OPTIONAL JOB 5: NOTIFICATIONS
+  # Send Slack/Teams notifications about pipeline status
+  # ════════════════════════════════════════════
+  notify:
+    name: 📢 Send Notifications
+    runs-on: ubuntu-latest
+    needs: [security-scan, publish, deploy]
+    if: always()
     
-  #   steps:
-  #     - name: Determine Overall Status
-  #       id: status
-  #       run: |
-  #         if [ "${{ needs.security-scan.result }}" = "failure" ]; then
-  #           echo "status=❌ Security Scan Failed" >> $GITHUB_OUTPUT
-  #           echo "color=danger" >> $GITHUB_OUTPUT
-  #         elif [ "${{ needs.publish.result }}" = "failure" ]; then
-  #           echo "status=❌ Push Failed" >> $GITHUB_OUTPUT
-  #           echo "color=danger" >> $GITHUB_OUTPUT
-  #         elif [ "${{ needs.deploy.result }}" = "failure" ]; then
-  #           echo "status=⚠️ Deploy Failed" >> $GITHUB_OUTPUT
-  #           echo "color=warning" >> $GITHUB_OUTPUT
-  #         elif [ "${{ needs.deploy.result }}" = "success" ]; then
-  #           echo "status=✅ Success - Deployed to ArgoCD" >> $GITHUB_OUTPUT
-  #           echo "color=good" >> $GITHUB_OUTPUT
-  #         else
-  #           echo "status=❓ Unknown Status" >> $GITHUB_OUTPUT
-  #           echo "color=#808080" >> $GITHUB_OUTPUT
-  #         fi
+    steps:
+      - name: Determine Overall Status
+        id: status
+        run: |
+          if [ "${{ needs.security-scan.result }}" = "failure" ]; then
+            echo "status=❌ Security Scan Failed" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+          elif [ "${{ needs.publish.result }}" = "failure" ]; then
+            echo "status=❌ Push Failed" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+          elif [ "${{ needs.deploy.result }}" = "failure" ]; then
+            echo "status=⚠️ Deploy Failed" >> $GITHUB_OUTPUT
+            echo "color=warning" >> $GITHUB_OUTPUT
+          elif [ "${{ needs.deploy.result }}" = "success" ]; then
+            echo "status=✅ Success - Deployed to ArgoCD" >> $GITHUB_OUTPUT
+            echo "color=good" >> $GITHUB_OUTPUT
+          else
+            echo "status=❓ Unknown Status" >> $GITHUB_OUTPUT
+            echo "color=#808080" >> $GITHUB_OUTPUT
+          fi
 
-  #     # Uncomment and configure your webhook URL for Slack/Teams notifications
-  #     - name: Send Notification (Webhook)
-  #       if: false  # Enable this by setting to 'true' and adding your webhook URL
-  #       uses: rtCamp/action-slack-notify@v2
-  #       env:
-  #         SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-  #         SLACK_TITLE: "CI/CD Pipeline Status"
-  #         SLACK_MESSAGE: |
-  #           Pipeline: ${{ github.repository }}
-  #           Status: ${{ steps.status.outputs.status }}
-  #           Branch: ${{ github.ref_name }}
-  #           Commit: ${{ github.sha }}
-  #           Author: ${{ github.actor }}
-  #           Image: ${{ env.FULL_IMAGE }}
-  #         SLACK_COLOR: ${{ steps.status.outputs.color }}
+      # Uncomment and configure your webhook URL for Slack/Teams notifications
+      - name: Send Notification (Webhook)
+        # if: true
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TITLE: "CI/CD Pipeline Status"
+          SLACK_MESSAGE: |
+            Pipeline: ${{ github.repository }}
+            Status: ${{ steps.status.outputs.status }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            Image: ${{ env.FULL_IMAGE }}
+          SLACK_COLOR: ${{ steps.status.outputs.color }}
