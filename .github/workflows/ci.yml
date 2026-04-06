@@ -447,6 +447,7 @@ env:
   IMAGE_NAME:        ${{ secrets.DOCKER_USERNAME }}/devops-app
   IMAGE_TAR:         /tmp/app-${{ github.sha }}.tar
   SHA_TAG:           ${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}
+  IMG_SHA_TAG:       devops-app:sha-${{ github.sha }}
   PROD_TAG:          ${{ secrets.DOCKER_USERNAME }}/devops-app:prod
   TRIVY_REPORT_PATH: trivy-report.json
   ARGOCD_DEV_APP:    devops-app-dev
@@ -592,8 +593,10 @@ jobs:
 
       - name: Push SHA-tagged Image (always — quarantine/audit trail)
         run: |
-          docker push ${{ env.SHA_TAG }}
-          echo "📤 Pushed: ${{ env.SHA_TAG }}"
+          DEV-TAG = "${{ secrets.DOCKER_USERNAME }}/devops-app:dev-${{ github.sha }}"
+          docker tag ${{ env.SHA_TAG }} $DEV_TAG
+          docker push $DEV_TAG
+          echo "📤 Pushed: $DEV_TAG"
 
       - name: Promote to :prod Tag (scan passed only)
         if: needs.security-scan.outputs.scan-status == 'pass'
