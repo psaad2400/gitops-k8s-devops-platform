@@ -1,3 +1,436 @@
+# name: Secure CI/CD Pipeline
+
+# on:
+#   push:
+#     branches:
+#       - main
+#   workflow_dispatch:
+
+# concurrency:
+#   group: ${{ github.workflow }}-${{ github.ref }}
+#   cancel-in-progress: true
+
+# env:
+#   IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/devops-app
+#   IMAGE_TAR: /tmp/devops-app-${{ github.sha }}.tar
+#   # Immutable SHA tag — used throughout the entire pipeline
+#   SHA_TAG:    ${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}
+#   PROD_TAG:   ${{ secrets.DOCKER_USERNAME }}/devops-app:prod
+#   ARGOCD_APP_NAME: devops-app
+#   TRIVY_REPORT_PATH: trivy-report.json
+
+# # ──────────────────────────────────────────────────────────
+# # JOB 1 — BUILD ONCE, EXPORT TAR
+# # Builds the image a single time and saves it as an artifact.
+# # All downstream jobs load from this tar — no rebuilds.
+# # ──────────────────────────────────────────────────────────
+# jobs:
+#   build:
+#     name: 🏗️ Build Docker Image
+#     runs-on: self-hosted
+
+#     steps:
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4
+
+#       - name: Set Up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
+#         with:
+#           driver-opts: network=host
+
+#       - name: Log In to Docker Hub
+#         uses: docker/login-action@v3
+#         with:
+#           username: ${{ secrets.DOCKER_USERNAME }}
+#           password: ${{ secrets.DOCKER_PASSWORD }}
+
+#       # Build with SHA tag, load into local daemon, no push yet.
+#       # Cache: branch-level registry cache → main branch fallback → GHA cache fallback
+#       - name: Build Image (load only, no push)
+#         id: build
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: ./app
+#           file: ./app/Dockerfile
+#           platforms: linux/amd64
+#           push: false
+#           load: true
+#           tags: ${{ env.SHA_TAG }}
+#           cache-from: |
+#             type=registry,ref=${{ secrets.DOCKER_USERNAME }}/devops-app:cache-${{ github.ref_name }}
+#             type=registry,ref=${{ secrets.DOCKER_USERNAME }}/devops-app:cache-main
+#             type=gha,scope=buildkit-${{ github.ref_name }}
+#             type=gha,scope=buildkit-main
+#           cache-to: |
+#             type=registry,ref=${{ secrets.DOCKER_USERNAME }}/devops-app:cache-${{ github.ref_name }},mode=max
+#             type=gha,scope=buildkit-${{ github.ref_name }},mode=max
+
+#       - name: Export Image as Tar
+#         run: |
+#           docker save ${{ env.SHA_TAG }} -o /tmp/app-${{ github.sha }}.tar
+#           echo "📦 Saved image: $(du -sh /tmp/app-${{ github.sha }}.tar | cut -f1)"
+
+#       # - name: Upload Image Artifact
+#       #   uses: actions/upload-artifact@v4
+#       #   with:
+#       #     name: docker-image
+#       #     path: /tmp/app-image.tar
+#       #     retention-days: 1
+
+#   # ──────────────────────────────────────────────────────────
+#   # JOB 2 — SECURITY SCAN
+#   # Loads image from tar, runs Trivy, sets scan-status output.
+#   # Does NOT fail the job on findings — gate is enforced by
+#   # the conditional in the publish/deploy jobs below.
+#   # ──────────────────────────────────────────────────────────
+#   security-scan:
+#     name: 🔒 Trivy Security Scan
+#     runs-on: self-hosted
+#     needs: build
+#     outputs:
+#       scan-status: ${{ steps.set-result.outputs.result }}
+#       high-count:  ${{ steps.set-result.outputs.high }}
+#       crit-count:  ${{ steps.set-result.outputs.critical }}
+#       total-count: ${{ steps.set-result.outputs.total }}
+ 
+#     steps:
+#       # - name: Download Image Artifact
+#       #   uses: actions/download-artifact@v4
+#       #   with:
+#       #     name: docker-image
+#       #     path: /tmp
+ 
+#       - name: Load Docker Image
+#         run: docker load -i /tmp/app-${{ github.sha }}.tar
+ 
+#       # FIX 1: Use $GITHUB_WORKSPACE explicitly so the mount path is
+#       # deterministic — $(pwd) can differ depending on how the runner
+#       # sets up the working directory for each step.
+#       # - name: Run Trivy Scan (JSON output)
+#       #   run: |
+#       #     docker run --rm \
+#       #       -v /var/run/docker.sock:/var/run/docker.sock \
+#       #       -v $GITHUB_WORKSPACE:/output \
+#       #       aquasec/trivy:0.69.1 image \
+#       #       --exit-code 0 \
+#       #       --severity HIGH,CRITICAL \
+#       #       --format json \
+#       #       --output /output/${{ env.TRIVY_REPORT_PATH }} \
+#       #       ${{ env.SHA_TAG }}
+ 
+#       # - name: Run Trivy Scan (table log)
+#       #   run: |
+#       #     docker run --rm \
+#       #       -v /var/run/docker.sock:/var/run/docker.sock \
+#       #       aquasec/trivy:0.69.1 image \
+#       #       --exit-code 0 \
+#       #       --severity HIGH,CRITICAL \
+#       #       --format table \
+#       #       ${{ env.SHA_TAG }}
+      
+#       - name: 🔒 Unified Security Scan & Report
+#         run: |
+#           # Run scan once: generates JSON, ignores unfixed, and fails (exit 1) on HIGH/CRITICAL
+#           docker run --rm \
+#             -v /var/run/docker.sock:/var/run/docker.sock \
+#             -v $GITHUB_WORKSPACE:/output \
+#             aquasec/trivy:0.69.1 image \
+#             --severity HIGH,CRITICAL \
+#             --ignore-unfixed \
+#             --format json \
+#             --output /output/${{ env.TRIVY_REPORT_PATH }} \
+#             --exit-code 1 \
+#             ${{ env.SHA_TAG }}
+            
+#       - name: Debug — Print Trivy Report
+#         if: always()
+#         run: |
+#           echo "📄 Report path: $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+#           ls -lh $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}
+#           echo "--- Report contents ---"
+#           cat $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }} | jq '.Results | length'
+
+#       - name: Parse Report & Set Outputs
+#         id: set-result
+#         run: |
+#           REPORT="$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
+ 
+#           HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' "$REPORT")
+#           CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "$REPORT")
+#           TOTAL=$((HIGH + CRITICAL))
+ 
+#           echo "HIGH=$HIGH"
+#           echo "CRITICAL=$CRITICAL"
+#           echo "TOTAL=$TOTAL"
+ 
+#           # FIX 3: Write outputs explicitly and echo them back to confirm
+#           echo "high=$HIGH"         >> $GITHUB_OUTPUT
+#           echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+#           echo "total=$TOTAL"       >> $GITHUB_OUTPUT
+ 
+#           if [ "$TOTAL" -gt 0 ]; then
+#             echo "result=fail" >> $GITHUB_OUTPUT
+#             echo "❌ Scan FAILED — HIGH: $HIGH | CRITICAL: $CRITICAL | Total: $TOTAL"
+#           else
+#             echo "result=pass" >> $GITHUB_OUTPUT
+#             echo "✅ Scan PASSED — no HIGH/CRITICAL vulnerabilities."
+#           fi
+ 
+#           # Echo outputs back for debug visibility in the runner log
+#           echo "--- GITHUB_OUTPUT contents ---"
+#           cat $GITHUB_OUTPUT
+ 
+#       # FIX 4: Hard-fail the job itself if vulns found.
+#       # This means downstream jobs with `needs: security-scan`
+#       # and no `if: always()` will be SKIPPED automatically —
+#       # you don't need to check scan-status in every job.
+#       - name: Enforce Security Gate (hard fail)
+#         run: |
+#           if [ "${{ steps.set-result.outputs.result }}" = "fail" ]; then
+#             echo "::error::🚨 Security gate FAILED!"
+#             echo "::error::HIGH: ${{ steps.set-result.outputs.high }} | CRITICAL: ${{ steps.set-result.outputs.critical }}"
+#             exit 1
+#           fi
+#           echo "✅ Security gate passed."
+ 
+#       - name: Upload Trivy JSON Report
+#         if: always()   # upload even on failure so you can inspect it
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: trivy-vulnerability-report
+#           path: ${{ env.TRIVY_REPORT_PATH }}
+#           retention-days: 30
+ 
+
+#   # ──────────────────────────────────────────────────────────
+#   # JOB 3 — PUBLISH (IMAGE PROMOTION)
+#   #
+#   # Promotion logic:
+#   #   scan PASSED  → push sha-<commit> tag  +  prod tag
+#   #   scan FAILED  → push sha-<commit> tag ONLY (quarantine / traceability)
+#   #
+#   # Both paths push the SAME tar image that was built in Job 1.
+#   # There is zero rebuild here.
+#   # ──────────────────────────────────────────────────────────
+#   publish:
+#     name: 📦 Publish Image
+#     runs-on: self-hosted
+#     needs: security-scan
+#     if: always() && needs.security-scan.result != 'cancelled'  # run even if scan failed
+
+#     steps:
+#     # - name: Download Image Artifact
+#     #   uses: actions/download-artifact@v4
+#     #   with:
+#     #     name: docker-image
+#     #     path: /tmp
+
+#     - name: Load Docker Image
+#       run: docker load -i /tmp/app-${{ github.sha }}.tar
+
+#     - name: Log In to Docker Hub
+#       uses: docker/login-action@v3
+#       with:
+#         username: ${{ secrets.DOCKER_USERNAME }}
+#         password: ${{ secrets.DOCKER_PASSWORD }}
+
+#     # Always push SHA tag — even on scan failure (quarantine/audit trail)
+#     - name: Push SHA-tagged Image
+#       run: |
+#         docker push ${{ env.SHA_TAG }}
+#         echo "📤 Pushed (quarantine): ${{ env.SHA_TAG }}"
+
+#     # Only promote to :prod if scan passed
+#     - name: Promote to :prod Tag
+#       if: needs.security-scan.result == 'success'
+#       run: |
+#         docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
+#         docker push ${{ env.PROD_TAG }}
+#         echo "🚀 Promoted to prod: ${{ env.PROD_TAG }}"
+
+#     - name: Log Quarantine (scan failed)
+#       if: needs.security-scan.result != 'success'
+#       run: |
+#         echo "⚠️ Scan failed — image NOT promoted to :prod"
+#         echo "🔖 Quarantined at: ${{ env.SHA_TAG }}"
+
+#     - name: Cleanup Tar
+#       if: always()
+#       run: rm -f /tmp/app-${{ github.sha }}.tar
+
+#   # ──────────────────────────────────────────────────────────
+#   # JOB 4 — DEPLOY TO ARGOCD
+#   # Only runs when scan passed (prod tag was pushed).
+#   # ──────────────────────────────────────────────────────────
+#   deploy:
+#     name: 🚀 Deploy to ArgoCD
+#     runs-on: self-hosted
+#     needs: [security-scan, publish]
+#     # if: needs.security-scan.outputs.scan-status == 'pass'
+#     if: needs.security-scan.result == 'success' && needs.publish.result == 'success'
+#     environment: production
+
+#     steps:
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4
+
+#       # - name: Hard Refresh ArgoCD Application
+#       #   run: |
+#       #     echo "🔄 Hard-refreshing: ${{ env.ARGOCD_APP_NAME }}"
+#       #     kubectl annotate application ${{ env.ARGOCD_APP_NAME }} \
+#       #       -n argocd \
+#       #       argocd.argoproj.io/refresh=hard \
+#       #       --overwrite
+
+#       - name: Sync dev (always on SHA push)
+#         run: |
+#           kubectl annotate application devops-app-dev \
+#           -n argocd argocd.argoproj.io/refresh=hard --overwrite
+
+#       - name: Sync prod (only if scan passed)
+#         if: needs.security-scan.result == 'success'
+#         run: |
+#           kubectl annotate application devops-app-prod \
+#           -n argocd argocd.argoproj.io/refresh=hard --overwrite
+
+#       - name: Trigger ArgoCD Sync
+#         run: |
+#           kubectl patch application ${{ env.ARGOCD_APP_NAME }} \
+#             -n argocd \
+#             --type merge \
+#             -p '{"operation":{"initiatedBy":{"username":"ci-runner"},"sync":{"prune":true,"syncOptions":["CreateNamespace=true"],"revisions":["HEAD"]}}}'
+
+#       - name: Wait for Sync (5 min timeout)
+#         run: |
+#           for i in $(seq 1 30); do
+#             STATUS=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+#               -o jsonpath='{.status.sync.status}')
+#             HEALTH=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+#               -o jsonpath='{.status.health.status}')
+
+#             echo "Attempt $i/30 — Sync: $STATUS | Health: $HEALTH"
+
+#             if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+#               echo "✅ Synced and Healthy!"
+#               exit 0
+#             fi
+
+#             if [ "$HEALTH" = "Degraded" ]; then
+#               echo "❌ Application is Degraded."
+#               exit 1
+#             fi
+
+#             sleep 10
+#           done
+#           echo "❌ Timed out after 5 minutes."
+#           exit 1
+
+#       - name: Verify Final Status
+#         run: |
+#           STATUS=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+#             -o jsonpath='{.status.sync.status}')
+#           HEALTH=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+#             -o jsonpath='{.status.health.status}')
+#           echo "Sync: $STATUS | Health: $HEALTH"
+
+#       - name: Print Managed Resources
+#         run: |
+#           kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+#             -o jsonpath='{range .status.resources[*]}{.kind}/{.name} — {.status}{"\n"}{end}'
+
+#   # ──────────────────────────────────────────────────────────
+#   # JOB 5 — NOTIFY
+#   #
+#   # Two distinct Slack messages:
+#   #   A) Scan failed  → security alert with vuln counts
+#   #   B) Deploy done  → success summary with image tags
+#   # ──────────────────────────────────────────────────────────
+#   notify:
+#     name: 📢 Slack Notification
+#     runs-on: ubuntu-latest
+#     needs: [security-scan, publish, deploy]
+#     if: always()
+
+#     steps:
+#       # ── A: Security failure notification ──────────────────
+#       - name: Notify — Scan Failed (security alert)
+#         if: needs.security-scan.outputs.scan-status == 'fail'
+#         uses: rtCamp/action-slack-notify@v2
+#         env:
+#           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_COLOR: danger
+#           SLACK_TITLE: "🚨 Security Gate Blocked Deployment"
+#           SLACK_MESSAGE: |
+#             *Repo:*   ${{ github.repository }}
+#             *Branch:* `${{ github.ref_name }}`
+#             *Commit:* `${{ github.sha }}`
+#             *Author:* ${{ github.actor }}
+
+#             *Vulnerabilities Found:*
+#             • HIGH: ${{ needs.security-scan.outputs.high-count }}
+#             • CRITICAL: ${{ needs.security-scan.outputs.crit-count }}
+#             • Total: ${{ needs.security-scan.outputs.total-count }}
+
+#             *Image quarantined at:*
+#             `${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}`
+
+#             ⛔ Image was NOT promoted to `:prod` and ArgoCD sync was skipped.
+#             📄 Download the Trivy report artifact for full details.
+
+#       # ── B: Successful deploy notification ─────────────────
+#       - name: Notify — Deploy Succeeded
+#         if: needs.deploy.result == 'success'
+#         uses: rtCamp/action-slack-notify@v2
+#         env:
+#           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_COLOR: good
+#           SLACK_TITLE: "✅ Production Deployment Successful"
+#           SLACK_MESSAGE: |
+#             *Repo:*   ${{ github.repository }}
+#             *Branch:* `${{ github.ref_name }}`
+#             *Commit:* `${{ github.sha }}`
+#             *Author:* ${{ github.actor }}
+
+#             *Images pushed:*
+#             • `${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}`
+#             • `${{ secrets.DOCKER_USERNAME }}/devops-app:prod`
+
+#             *ArgoCD:* `${{ env.ARGOCD_APP_NAME }}` synced and Healthy ✅
+
+#       # ── C: Deploy failed after scan passed (infra issue) ──
+#       - name: Notify — Deploy Failed (infra/ArgoCD issue)
+#         if: needs.security-scan.outputs.scan-status == 'pass' && needs.deploy.result == 'failure'
+#         uses: rtCamp/action-slack-notify@v2
+#         env:
+#           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_COLOR: warning
+#           SLACK_TITLE: "⚠️ Deploy Failed (image is clean)"
+#           SLACK_MESSAGE: |
+#             *Repo:*   ${{ github.repository }}
+#             *Branch:* `${{ github.ref_name }}`
+#             *Commit:* `${{ github.sha }}`
+#             *Author:* ${{ github.actor }}
+
+#             ✅ Security scan passed — no HIGH/CRITICAL vulnerabilities.
+#             ✅ Image promoted and pushed to Docker Hub.
+#             ❌ ArgoCD sync failed or timed out.
+
+#             *Images are available:*
+#             • `${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}`
+#             • `${{ secrets.DOCKER_USERNAME }}/devops-app:prod`
+
+#             Check the ArgoCD UI or runner logs for details.
+
+
+
+
+
+
+
+
+
+
+
 name: Secure CI/CD Pipeline
 
 on:
@@ -11,18 +444,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/devops-app
-  IMAGE_TAR: /tmp/devops-app-${{ github.sha }}.tar
-  # Immutable SHA tag — used throughout the entire pipeline
-  SHA_TAG:    ${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}
-  PROD_TAG:   ${{ secrets.DOCKER_USERNAME }}/devops-app:prod
-  ARGOCD_APP_NAME: devops-app
+  IMAGE_NAME:        ${{ secrets.DOCKER_USERNAME }}/devops-app
+  IMAGE_TAR:         /tmp/app-${{ github.sha }}.tar
+  SHA_TAG:           ${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}
+  PROD_TAG:          ${{ secrets.DOCKER_USERNAME }}/devops-app:prod
   TRIVY_REPORT_PATH: trivy-report.json
+  ARGOCD_DEV_APP:    devops-app-dev
+  ARGOCD_PROD_APP:   devops-app-prod
 
 # ──────────────────────────────────────────────────────────
-# JOB 1 — BUILD ONCE, EXPORT TAR
-# Builds the image a single time and saves it as an artifact.
-# All downstream jobs load from this tar — no rebuilds.
+# JOB 1 — BUILD
+# Builds image once, saves to /tmp tar on self-hosted runner.
+# No upload/download roundtrip — direct /tmp access.
 # ──────────────────────────────────────────────────────────
 jobs:
   build:
@@ -44,10 +477,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Build with SHA tag, load into local daemon, no push yet.
-      # Cache: branch-level registry cache → main branch fallback → GHA cache fallback
       - name: Build Image (load only, no push)
-        id: build
         uses: docker/build-push-action@v5
         with:
           context: ./app
@@ -65,23 +495,15 @@ jobs:
             type=registry,ref=${{ secrets.DOCKER_USERNAME }}/devops-app:cache-${{ github.ref_name }},mode=max
             type=gha,scope=buildkit-${{ github.ref_name }},mode=max
 
-      - name: Export Image as Tar
+      - name: Export Image as Tar to /tmp
         run: |
-          docker save ${{ env.SHA_TAG }} -o /tmp/app-${{ github.sha }}.tar
-          echo "📦 Saved image: $(du -sh /tmp/app-${{ github.sha }}.tar | cut -f1)"
-
-      # - name: Upload Image Artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: docker-image
-      #     path: /tmp/app-image.tar
-      #     retention-days: 1
+          docker save ${{ env.SHA_TAG }} -o ${{ env.IMAGE_TAR }}
+          echo "📦 Saved: $(du -sh ${{ env.IMAGE_TAR }} | cut -f1)"
 
   # ──────────────────────────────────────────────────────────
   # JOB 2 — SECURITY SCAN
-  # Loads image from tar, runs Trivy, sets scan-status output.
-  # Does NOT fail the job on findings — gate is enforced by
-  # the conditional in the publish/deploy jobs below.
+  # Loads tar, runs Trivy, parses CVE counts, hard-fails on
+  # HIGH/CRITICAL so downstream jobs skip automatically.
   # ──────────────────────────────────────────────────────────
   security-scan:
     name: 🔒 Trivy Security Scan
@@ -92,45 +514,13 @@ jobs:
       high-count:  ${{ steps.set-result.outputs.high }}
       crit-count:  ${{ steps.set-result.outputs.critical }}
       total-count: ${{ steps.set-result.outputs.total }}
- 
+
     steps:
-      # - name: Download Image Artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: docker-image
-      #     path: /tmp
- 
       - name: Load Docker Image
-        run: docker load -i /tmp/app-${{ github.sha }}.tar
- 
-      # FIX 1: Use $GITHUB_WORKSPACE explicitly so the mount path is
-      # deterministic — $(pwd) can differ depending on how the runner
-      # sets up the working directory for each step.
-      # - name: Run Trivy Scan (JSON output)
-      #   run: |
-      #     docker run --rm \
-      #       -v /var/run/docker.sock:/var/run/docker.sock \
-      #       -v $GITHUB_WORKSPACE:/output \
-      #       aquasec/trivy:0.69.1 image \
-      #       --exit-code 0 \
-      #       --severity HIGH,CRITICAL \
-      #       --format json \
-      #       --output /output/${{ env.TRIVY_REPORT_PATH }} \
-      #       ${{ env.SHA_TAG }}
- 
-      # - name: Run Trivy Scan (table log)
-      #   run: |
-      #     docker run --rm \
-      #       -v /var/run/docker.sock:/var/run/docker.sock \
-      #       aquasec/trivy:0.69.1 image \
-      #       --exit-code 0 \
-      #       --severity HIGH,CRITICAL \
-      #       --format table \
-      #       ${{ env.SHA_TAG }}
-      
-      - name: 🔒 Unified Security Scan & Report
+        run: docker load -i ${{ env.IMAGE_TAR }}
+
+      - name: Run Trivy Scan (JSON + hard fail on findings)
         run: |
-          # Run scan once: generates JSON, ignores unfixed, and fails (exit 1) on HIGH/CRITICAL
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v $GITHUB_WORKSPACE:/output \
@@ -141,33 +531,27 @@ jobs:
             --output /output/${{ env.TRIVY_REPORT_PATH }} \
             --exit-code 1 \
             ${{ env.SHA_TAG }}
-            
+
       - name: Debug — Print Trivy Report
         if: always()
         run: |
-          echo "📄 Report path: $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
-          ls -lh $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}
-          echo "--- Report contents ---"
+          echo "📄 Report: $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
           cat $GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }} | jq '.Results | length'
 
       - name: Parse Report & Set Outputs
         id: set-result
+        if: always()
         run: |
           REPORT="$GITHUB_WORKSPACE/${{ env.TRIVY_REPORT_PATH }}"
- 
+
           HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' "$REPORT")
           CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "$REPORT")
           TOTAL=$((HIGH + CRITICAL))
- 
-          echo "HIGH=$HIGH"
-          echo "CRITICAL=$CRITICAL"
-          echo "TOTAL=$TOTAL"
- 
-          # FIX 3: Write outputs explicitly and echo them back to confirm
+
           echo "high=$HIGH"         >> $GITHUB_OUTPUT
           echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
           echo "total=$TOTAL"       >> $GITHUB_OUTPUT
- 
+
           if [ "$TOTAL" -gt 0 ]; then
             echo "result=fail" >> $GITHUB_OUTPUT
             echo "❌ Scan FAILED — HIGH: $HIGH | CRITICAL: $CRITICAL | Total: $TOTAL"
@@ -175,98 +559,119 @@ jobs:
             echo "result=pass" >> $GITHUB_OUTPUT
             echo "✅ Scan PASSED — no HIGH/CRITICAL vulnerabilities."
           fi
- 
-          # Echo outputs back for debug visibility in the runner log
-          echo "--- GITHUB_OUTPUT contents ---"
-          cat $GITHUB_OUTPUT
- 
-      # FIX 4: Hard-fail the job itself if vulns found.
-      # This means downstream jobs with `needs: security-scan`
-      # and no `if: always()` will be SKIPPED automatically —
-      # you don't need to check scan-status in every job.
-      - name: Enforce Security Gate (hard fail)
-        run: |
-          if [ "${{ steps.set-result.outputs.result }}" = "fail" ]; then
-            echo "::error::🚨 Security gate FAILED!"
-            echo "::error::HIGH: ${{ steps.set-result.outputs.high }} | CRITICAL: ${{ steps.set-result.outputs.critical }}"
-            exit 1
-          fi
-          echo "✅ Security gate passed."
- 
+
       - name: Upload Trivy JSON Report
-        if: always()   # upload even on failure so you can inspect it
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trivy-vulnerability-report
           path: ${{ env.TRIVY_REPORT_PATH }}
           retention-days: 30
- 
 
   # ──────────────────────────────────────────────────────────
-  # JOB 3 — PUBLISH (IMAGE PROMOTION)
-  #
-  # Promotion logic:
-  #   scan PASSED  → push sha-<commit> tag  +  prod tag
-  #   scan FAILED  → push sha-<commit> tag ONLY (quarantine / traceability)
-  #
-  # Both paths push the SAME tar image that was built in Job 1.
-  # There is zero rebuild here.
+  # JOB 3 — PUBLISH
+  # scan PASSED → push SHA tag + prod tag
+  # scan FAILED → push SHA tag only (quarantine for audit trail)
   # ──────────────────────────────────────────────────────────
   publish:
     name: 📦 Publish Image
     runs-on: self-hosted
     needs: security-scan
-    if: always() && needs.security-scan.result != 'cancelled'  # run even if scan failed
+    if: always() && needs.security-scan.result != 'cancelled'
 
     steps:
-    # - name: Download Image Artifact
-    #   uses: actions/download-artifact@v4
-    #   with:
-    #     name: docker-image
-    #     path: /tmp
+      - name: Load Docker Image
+        run: docker load -i ${{ env.IMAGE_TAR }}
 
-    - name: Load Docker Image
-      run: docker load -i /tmp/app-${{ github.sha }}.tar
+      - name: Log In to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Log In to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Push SHA-tagged Image (always — quarantine/audit trail)
+        run: |
+          docker push ${{ env.SHA_TAG }}
+          echo "📤 Pushed: ${{ env.SHA_TAG }}"
 
-    # Always push SHA tag — even on scan failure (quarantine/audit trail)
-    - name: Push SHA-tagged Image
-      run: |
-        docker push ${{ env.SHA_TAG }}
-        echo "📤 Pushed (quarantine): ${{ env.SHA_TAG }}"
+      - name: Promote to :prod Tag (scan passed only)
+        if: needs.security-scan.result == 'success'
+        run: |
+          docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
+          docker push ${{ env.PROD_TAG }}
+          echo "🚀 Promoted to prod: ${{ env.PROD_TAG }}"
 
-    # Only promote to :prod if scan passed
-    - name: Promote to :prod Tag
-      if: needs.security-scan.result == 'success'
-      run: |
-        docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
-        docker push ${{ env.PROD_TAG }}
-        echo "🚀 Promoted to prod: ${{ env.PROD_TAG }}"
+      - name: Log Quarantine (scan failed)
+        if: needs.security-scan.result != 'success'
+        run: |
+          echo "⚠️ Scan failed — image NOT promoted to :prod"
+          echo "🔖 Quarantined at: ${{ env.SHA_TAG }}"
 
-    - name: Log Quarantine (scan failed)
-      if: needs.security-scan.result != 'success'
-      run: |
-        echo "⚠️ Scan failed — image NOT promoted to :prod"
-        echo "🔖 Quarantined at: ${{ env.SHA_TAG }}"
-
-    - name: Cleanup Tar
-      if: always()
-      run: rm -f /tmp/app-${{ github.sha }}.tar
+      - name: Cleanup Tar
+        if: always()
+        run: rm -f ${{ env.IMAGE_TAR }}
 
   # ──────────────────────────────────────────────────────────
-  # JOB 4 — DEPLOY TO ARGOCD
-  # Only runs when scan passed (prod tag was pushed).
+  # JOB 4 — SYNC DEV
+  # Runs even when scan fails — dev env always gets latest SHA.
+  # ArgoCD picks up the sha-tagged image in values-dev.yaml.
   # ──────────────────────────────────────────────────────────
-  deploy:
-    name: 🚀 Deploy to ArgoCD
+  sync-dev:
+    name: 🔀 Sync Dev Environment
+    runs-on: self-hosted
+    needs: publish
+    if: always() && needs.publish.result == 'success'
+
+    steps:
+      - name: Hard Refresh Dev App
+        run: |
+          kubectl annotate application ${{ env.ARGOCD_DEV_APP }} \
+            -n argocd \
+            argocd.argoproj.io/refresh=hard \
+            --overwrite
+          echo "🔄 Dev refresh triggered: ${{ env.ARGOCD_DEV_APP }}"
+
+      - name: Trigger Dev Sync
+        run: |
+          kubectl patch application ${{ env.ARGOCD_DEV_APP }} \
+            -n argocd \
+            --type merge \
+            -p '{"operation":{"initiatedBy":{"username":"ci-runner"},"sync":{"prune":true,"syncOptions":["CreateNamespace=true"],"revisions":["HEAD"]}}}'
+
+      - name: Wait for Dev Sync (3 min timeout)
+        run: |
+          for i in $(seq 1 18); do
+            STATUS=$(kubectl get application ${{ env.ARGOCD_DEV_APP }} -n argocd \
+              -o jsonpath='{.status.sync.status}')
+            HEALTH=$(kubectl get application ${{ env.ARGOCD_DEV_APP }} -n argocd \
+              -o jsonpath='{.status.health.status}')
+
+            echo "Attempt $i/18 — Sync: $STATUS | Health: $HEALTH"
+
+            if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+              echo "✅ Dev — Synced and Healthy!"
+              exit 0
+            fi
+
+            if [ "$HEALTH" = "Degraded" ]; then
+              echo "❌ Dev — Application Degraded."
+              exit 1
+            fi
+
+            sleep 10
+          done
+          echo "❌ Dev sync timed out."
+          exit 1
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 5 — DEPLOY PROD
+  # Only runs when scan passed + image promoted to :prod.
+  # Syncs prod ArgoCD app and polls until Healthy.
+  # ──────────────────────────────────────────────────────────
+  deploy-prod:
+    name: 🚀 Deploy to Production
     runs-on: self-hosted
     needs: [security-scan, publish]
-    # if: needs.security-scan.outputs.scan-status == 'pass'
     if: needs.security-scan.result == 'success' && needs.publish.result == 'success'
     environment: production
 
@@ -274,74 +679,72 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Hard Refresh ArgoCD Application
+      - name: Hard Refresh Prod App
         run: |
-          echo "🔄 Hard-refreshing: ${{ env.ARGOCD_APP_NAME }}"
-          kubectl annotate application ${{ env.ARGOCD_APP_NAME }} \
+          kubectl annotate application ${{ env.ARGOCD_PROD_APP }} \
             -n argocd \
             argocd.argoproj.io/refresh=hard \
             --overwrite
+          echo "🔄 Prod refresh triggered: ${{ env.ARGOCD_PROD_APP }}"
 
-      - name: Trigger ArgoCD Sync
+      - name: Trigger Prod Sync
         run: |
-          kubectl patch application ${{ env.ARGOCD_APP_NAME }} \
+          kubectl patch application ${{ env.ARGOCD_PROD_APP }} \
             -n argocd \
             --type merge \
             -p '{"operation":{"initiatedBy":{"username":"ci-runner"},"sync":{"prune":true,"syncOptions":["CreateNamespace=true"],"revisions":["HEAD"]}}}'
 
-      - name: Wait for Sync (5 min timeout)
+      - name: Wait for Prod Sync (5 min timeout)
         run: |
           for i in $(seq 1 30); do
-            STATUS=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+            STATUS=$(kubectl get application ${{ env.ARGOCD_PROD_APP }} -n argocd \
               -o jsonpath='{.status.sync.status}')
-            HEALTH=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+            HEALTH=$(kubectl get application ${{ env.ARGOCD_PROD_APP }} -n argocd \
               -o jsonpath='{.status.health.status}')
 
             echo "Attempt $i/30 — Sync: $STATUS | Health: $HEALTH"
 
             if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
-              echo "✅ Synced and Healthy!"
+              echo "✅ Prod — Synced and Healthy!"
               exit 0
             fi
 
             if [ "$HEALTH" = "Degraded" ]; then
-              echo "❌ Application is Degraded."
+              echo "❌ Prod — Application Degraded."
               exit 1
             fi
 
             sleep 10
           done
-          echo "❌ Timed out after 5 minutes."
+          echo "❌ Prod sync timed out."
           exit 1
 
       - name: Verify Final Status
         run: |
-          STATUS=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+          STATUS=$(kubectl get application ${{ env.ARGOCD_PROD_APP }} -n argocd \
             -o jsonpath='{.status.sync.status}')
-          HEALTH=$(kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+          HEALTH=$(kubectl get application ${{ env.ARGOCD_PROD_APP }} -n argocd \
             -o jsonpath='{.status.health.status}')
           echo "Sync: $STATUS | Health: $HEALTH"
 
       - name: Print Managed Resources
         run: |
-          kubectl get application ${{ env.ARGOCD_APP_NAME }} -n argocd \
+          kubectl get application ${{ env.ARGOCD_PROD_APP }} -n argocd \
             -o jsonpath='{range .status.resources[*]}{.kind}/{.name} — {.status}{"\n"}{end}'
 
   # ──────────────────────────────────────────────────────────
-  # JOB 5 — NOTIFY
-  #
-  # Two distinct Slack messages:
-  #   A) Scan failed  → security alert with vuln counts
-  #   B) Deploy done  → success summary with image tags
+  # JOB 6 — NOTIFY
+  # A) Scan failed      → security alert with CVE counts
+  # B) Deploy succeeded → success summary
+  # C) Deploy failed    → infra/ArgoCD issue (image was clean)
   # ──────────────────────────────────────────────────────────
   notify:
     name: 📢 Slack Notification
     runs-on: ubuntu-latest
-    needs: [security-scan, publish, deploy]
+    needs: [security-scan, publish, sync-dev, deploy-prod]
     if: always()
 
     steps:
-      # ── A: Security failure notification ──────────────────
       - name: Notify — Scan Failed (security alert)
         if: needs.security-scan.outputs.scan-status == 'fail'
         uses: rtCamp/action-slack-notify@v2
@@ -356,19 +759,19 @@ jobs:
             *Author:* ${{ github.actor }}
 
             *Vulnerabilities Found:*
-            • HIGH: ${{ needs.security-scan.outputs.high-count }}
+            • HIGH:     ${{ needs.security-scan.outputs.high-count }}
             • CRITICAL: ${{ needs.security-scan.outputs.crit-count }}
-            • Total: ${{ needs.security-scan.outputs.total-count }}
+            • Total:    ${{ needs.security-scan.outputs.total-count }}
 
             *Image quarantined at:*
             `${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}`
 
-            ⛔ Image was NOT promoted to `:prod` and ArgoCD sync was skipped.
-            📄 Download the Trivy report artifact for full details.
+            ⛔ NOT promoted to :prod — ArgoCD prod sync skipped.
+            ✅ Dev environment synced with quarantined SHA image.
+            📄 Download Trivy report artifact for full details.
 
-      # ── B: Successful deploy notification ─────────────────
       - name: Notify — Deploy Succeeded
-        if: needs.deploy.result == 'success'
+        if: needs.deploy-prod.result == 'success'
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -384,11 +787,11 @@ jobs:
             • `${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}`
             • `${{ secrets.DOCKER_USERNAME }}/devops-app:prod`
 
-            *ArgoCD:* `${{ env.ARGOCD_APP_NAME }}` synced and Healthy ✅
+            *ArgoCD Dev:*  `devops-app-dev`  — Synced ✅
+            *ArgoCD Prod:* `devops-app-prod` — Synced & Healthy ✅
 
-      # ── C: Deploy failed after scan passed (infra issue) ──
       - name: Notify — Deploy Failed (infra/ArgoCD issue)
-        if: needs.security-scan.outputs.scan-status == 'pass' && needs.deploy.result == 'failure'
+        if: needs.security-scan.outputs.scan-status == 'pass' && needs.deploy-prod.result == 'failure'
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -402,10 +805,10 @@ jobs:
 
             ✅ Security scan passed — no HIGH/CRITICAL vulnerabilities.
             ✅ Image promoted and pushed to Docker Hub.
-            ❌ ArgoCD sync failed or timed out.
+            ❌ ArgoCD prod sync failed or timed out.
 
-            *Images are available:*
+            *Images available:*
             • `${{ secrets.DOCKER_USERNAME }}/devops-app:sha-${{ github.sha }}`
             • `${{ secrets.DOCKER_USERNAME }}/devops-app:prod`
 
-            Check the ArgoCD UI or runner logs for details.
+            Check ArgoCD UI or runner logs for details.
