@@ -623,20 +623,32 @@ jobs:
     if: always() && needs.publish.result == 'success'
 
     steps:
-      - name: Hard Refresh Dev App
+      - name: Update Tag & Trigger Dev Sync
         run: |
-          kubectl annotate application ${{ env.ARGOCD_DEV_APP }} \
-            -n argocd \
-            argocd.argoproj.io/refresh=hard \
-            --overwrite
-          echo "🔄 Dev refresh triggered: ${{ env.ARGOCD_DEV_APP }}"
-
-      - name: Trigger Dev Sync
-        run: |
+          # Patching both the Helm parameter for the unique tag AND triggering the sync
           kubectl patch application ${{ env.ARGOCD_DEV_APP }} \
             -n argocd \
             --type merge \
-            -p '{"operation":{"initiatedBy":{"username":"ci-runner"},"sync":{"prune":true,"syncOptions":["CreateNamespace=true"],"revisions":["HEAD"]}}}'
+            -p '{
+              "spec": {
+                "source": {
+                  "helm": {
+                    "parameters": [
+                      {"name": "image.tag", "value": "sha-${{ github.sha }}"}
+                    ]
+                  }
+                }
+              },
+              "operation": {
+                "initiatedBy": {"username": "ci-runner"},
+                "sync": {
+                  "prune": true,
+                  "syncOptions": ["CreateNamespace=true"],
+                  "revisions": ["HEAD"]
+                }
+              }
+            }'
+          echo "🔄 Dev sync triggered with dynamic tag: sha-${{ github.sha }}"
 
       - name: Wait for Dev Sync (3 min timeout)
         run: |
