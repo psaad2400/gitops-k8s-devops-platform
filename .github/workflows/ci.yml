@@ -593,7 +593,7 @@ jobs:
 
       - name: Push SHA-tagged Image (always — quarantine/audit trail)
         run: |
-          DEV-TAG = "${{ secrets.DOCKER_USERNAME }}/devops-app:dev-${{ github.sha }}"
+          DEV_TAG = "${{ secrets.DOCKER_USERNAME }}/devops-app:dev-${{ github.sha }}"
           docker tag ${{ env.SHA_TAG }} $DEV_TAG
           docker push $DEV_TAG
           echo "📤 Pushed: $DEV_TAG"
