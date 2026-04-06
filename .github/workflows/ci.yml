@@ -665,13 +665,14 @@ jobs:
               exit 0
             fi
 
+            sleep 10
+          done
+
             if [ "$HEALTH" = "Degraded" ]; then
               echo "❌ Dev — Application Degraded."
               exit 1
             fi
 
-            sleep 10
-          done
           echo "❌ Dev sync timed out."
           exit 1
 
