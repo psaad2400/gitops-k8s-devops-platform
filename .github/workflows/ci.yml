@@ -596,6 +596,7 @@ jobs:
 
       - name: Promote to :prod Tag (scan passed only)
         # if: needs.security-scan.outputs.scan-status == 'pass'
+        if: needs.security-scan.result == 'success'
         run: |
           docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
           docker push ${{ env.PROD_TAG }}
@@ -701,7 +702,7 @@ jobs:
 
       - name: Fix kubeconfig for WSL
         uses: ./.github/actions/fix-kubeconfig
-        
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
