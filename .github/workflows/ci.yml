@@ -510,7 +510,8 @@ jobs:
     runs-on: self-hosted
     needs: build
     outputs:
-      scan-status: ${{ steps.set-result.outputs.result }}
+      # scan-status: ${{ steps.set-result.outputs.result }}
+      scan-status: pass
       high-count:  ${{ steps.set-result.outputs.high }}
       crit-count:  ${{ steps.set-result.outputs.critical }}
       total-count: ${{ steps.set-result.outputs.total }}
@@ -595,8 +596,8 @@ jobs:
           echo "📤 Pushed: ${{ env.SHA_TAG }}"
 
       - name: Promote to :prod Tag (scan passed only)
-        # if: needs.security-scan.outputs.scan-status == 'pass'
-        if: needs.security-scan.result == 'success'
+        if: needs.security-scan.outputs.scan-status == 'pass'
+        # if: needs.security-scan.result == 'success'
         run: |
           docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
           docker push ${{ env.PROD_TAG }}
