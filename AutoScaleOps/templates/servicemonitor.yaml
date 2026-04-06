@@ -8,7 +8,8 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - default
+      - dev
+      - prod
   selector:
     matchLabels:
       app: autoscaleops                 # your service label
