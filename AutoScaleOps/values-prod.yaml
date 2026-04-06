@@ -3,6 +3,9 @@ replicaCount: 2
 image:
   tag: "prod"         # CI promotes here only on clean scan
 
+service:
+  nodePort: 30011   # assigned another port for prod env
+
 hpa:
   minReplicas: 2
   maxReplicas: 6
