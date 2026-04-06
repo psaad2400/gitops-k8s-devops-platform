@@ -1,0 +1,8 @@
+replicaCount: 1
+
+image:
+  tag: "sha-latest"   # CI will update this on every push
+
+hpa:
+  minReplicas: 1
+  maxReplicas: 3

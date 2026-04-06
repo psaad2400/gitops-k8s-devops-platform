@@ -1,0 +1,8 @@
+replicaCount: 2
+
+image:
+  tag: "prod"         # CI promotes here only on clean scan
+
+hpa:
+  minReplicas: 2
+  maxReplicas: 6
