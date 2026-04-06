@@ -595,7 +595,7 @@ jobs:
           echo "📤 Pushed: ${{ env.SHA_TAG }}"
 
       - name: Promote to :prod Tag (scan passed only)
-        if: needs.security-scan.result == 'success'
+        if: needs.security-scan.outputs.scan-status == 'pass'
         run: |
           docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
           docker push ${{ env.PROD_TAG }}
