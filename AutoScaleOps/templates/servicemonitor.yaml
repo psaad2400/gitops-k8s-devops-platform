@@ -8,8 +8,7 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - dev
-      - prod
+      - {{ .Release.Namespace | quote }}
   selector:
     matchLabels:
       app: autoscaleops                 # your service label
