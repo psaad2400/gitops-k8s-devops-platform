@@ -623,6 +623,12 @@ jobs:
     if: always() && needs.publish.result == 'success'
 
     steps:
+
+      # Copies fresh kubeconfig from Windows and fixes host IP for WSL.
+      # Required on every run — KinD recreates certs on each cluster start.
+      - name: Fix kubeconfig for WSL
+        uses: ./.github/actions/fix-kubeconfig
+
       - name: Update Tag & Trigger Dev Sync
         run: |
           # Patching both the Helm parameter for the unique tag AND triggering the sync
@@ -689,6 +695,13 @@ jobs:
     environment: production
 
     steps:
+
+      # Copies fresh kubeconfig from Windows and fixes host IP for WSL.
+      # Required on every run — KinD recreates certs on each cluster start.
+
+      - name: Fix kubeconfig for WSL
+        uses: ./.github/actions/fix-kubeconfig
+        
       - name: Checkout Repository
         uses: actions/checkout@v4
 
