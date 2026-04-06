@@ -1,0 +1,59 @@
+# =============================================================
+# COMPOSITE ACTION — Fix kubeconfig for WSL
+# =============================================================
+# Problem:
+#   KinD cluster recreates on every start.sh run → new TLS certs
+#   generated → old kubeconfig has stale certs → x509 error.
+#   Additionally, WSL uses a different network namespace than
+#   Windows, so 0.0.0.0 in kubeconfig must be replaced with
+#   the actual Windows host IP that WSL can reach.
+#
+# Solution:
+#   1. Copy fresh kubeconfig from Windows (has new certs)
+#   2. Replace 0.0.0.0 with WSL host IP from /etc/resolv.conf
+#
+# Usage in any job:
+#   - name: Fix kubeconfig
+#     uses: ./.github/actions/fix-kubeconfig
+#
+# Note:
+#   Must be called before any kubectl command in a job.
+#   Required in every job that uses kubectl on self-hosted runner.
+# =============================================================
+
+name: Fix kubeconfig for WSL
+description: >
+  Copies fresh kubeconfig from Windows host and replaces 0.0.0.0
+  with WSL host IP. Required after every KinD cluster recreate
+  to fix stale TLS certificates and network routing.
+
+runs:
+  using: composite
+  steps:
+    - name: Copy fresh kubeconfig and fix host IP
+      shell: bash
+      run: |
+        # Verify source kubeconfig exists before copying
+        if [ ! -f /mnt/c/Users/Admin/.kube/config ]; then
+          echo "❌ kubeconfig not found at /mnt/c/Users/Admin/.kube/config"
+          exit 1
+        fi
+
+        # Copy fresh config from Windows — gets latest TLS certs
+        cp /mnt/c/Users/Admin/.kube/config ~/.kube/config
+
+        # Extract WSL host IP from resolv.conf nameserver entry
+        HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+
+        if [ -z "$HOST_IP" ]; then
+          echo "❌ Could not determine WSL host IP from /etc/resolv.conf"
+          exit 1
+        fi
+
+        # Replace 0.0.0.0 with actual reachable host IP
+        sed -i "s|0.0.0.0|${HOST_IP}|g" ~/.kube/config
+
+        echo "✅ kubeconfig ready — Host IP: $HOST_IP"
+
+        # Verify kubectl can reach the cluster
+        kubectl cluster-info --request-timeout=10s
