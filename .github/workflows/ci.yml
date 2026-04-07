@@ -511,8 +511,7 @@ jobs:
     runs-on: self-hosted
     needs: build
     outputs:
-      # scan-status: ${{ steps.set-result.outputs.result }}
-      scan-status: pass
+      scan-status: ${{ steps.set-result.outputs.result }}
       high-count:  ${{ steps.set-result.outputs.high }}
       crit-count:  ${{ steps.set-result.outputs.critical }}
       total-count: ${{ steps.set-result.outputs.total }}
@@ -600,7 +599,7 @@ jobs:
           echo "📤 Pushed: $DEV_TAG"
 
       - name: Promote to :prod Tag (scan passed only)
-        if: needs.security-scan.outputs.scan-status != 'pass'
+        if: needs.security-scan.outputs.scan-status == 'pass'
         # if: needs.security-scan.result == 'success'
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
