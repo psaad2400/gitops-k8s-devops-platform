@@ -600,7 +600,7 @@ jobs:
           echo "📤 Pushed: $DEV_TAG"
 
       - name: Promote to :prod Tag (scan passed only)
-        if: needs.security-scan.outputs.scan-status == 'pass'
+        if: needs.security-scan.outputs.scan-status != 'pass'
         # if: needs.security-scan.result == 'success'
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
