@@ -593,7 +593,8 @@ jobs:
 
       - name: Push SHA-tagged Image (always — quarantine/audit trail)
         run: |
-          DEV_TAG="${{ secrets.DOCKER_USERNAME }}/devops-app:dev-${{ github.sha }}"
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          DEV_TAG="${{ secrets.DOCKER_USERNAME }}/devops-app:dev-$SHORT_SHA"
           docker tag ${{ env.SHA_TAG }} $DEV_TAG
           docker push $DEV_TAG
           echo "📤 Pushed: $DEV_TAG"
@@ -602,7 +603,8 @@ jobs:
         if: needs.security-scan.outputs.scan-status == 'pass'
         # if: needs.security-scan.result == 'success'
         run: |
-          PROD_TAG="${{ secrets.DOCKER_USERNAME }}/devops-app:prod-${{ github.sha }}"
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          PROD_TAG="${{ secrets.DOCKER_USERNAME }}/devops-app:prod-$SHORT_SHA"
           docker tag ${{ env.SHA_TAG }} $PROD_TAG
           docker push $PROD_TAG
           echo "🚀 Promoted to prod: $PROD_TAG"
