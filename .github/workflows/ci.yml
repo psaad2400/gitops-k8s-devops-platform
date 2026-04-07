@@ -602,9 +602,10 @@ jobs:
         if: needs.security-scan.outputs.scan-status == 'pass'
         # if: needs.security-scan.result == 'success'
         run: |
-          docker tag ${{ env.SHA_TAG }} ${{ env.PROD_TAG }}
-          docker push ${{ env.PROD_TAG }}
-          echo "🚀 Promoted to prod: ${{ env.PROD_TAG }}"
+          PROD_TAG="${{ secrets.DOCKER_USERNAME }}/devops-app:prod-${{ github.sha }}"
+          docker tag ${{ env.SHA_TAG }} $PROD_TAG
+          docker push $PROD_TAG
+          echo "🚀 Promoted to prod: $PROD_TAG"
 
       - name: Log Quarantine (scan failed)
         if: needs.security-scan.result != 'success'
