@@ -1,0 +1,26 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: dev-image-updater
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "devops-app-dev"
+      images:
+        - alias: "myapp"
+          imageName: "saadpatel2400/devops-app"
+          # Strategy must be inside commonUpdateSettings
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            allowTags: "regexp:^dev-[a-f0-9]+$"
+          manifestTargets:
+            helm:
+              name: "image.repository"
+              tag: "image.tag"
+  writeBackConfig:
+    # Secret reference goes directly in the 'method' field
+    method: "git:secret:argocd/git-creds"
+    gitConfig:
+      repository: "https://github.com/psaad2400/gitops-k8s-devops-platform"
+      branch: "main"
+      writeBackTarget: "helmvalues:AutoScaleOps/values-dev.yaml"
