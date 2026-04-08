@@ -11,10 +11,15 @@ spec:
     metadata:
       labels:
         app: devops-app
+      annotations:  
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: devops-app
         image: saadpatel2400/devops-app:v1
+        # image: devops-app:v2
         ports:
         - containerPort: 5000
 
