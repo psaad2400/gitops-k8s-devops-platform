@@ -3,15 +3,6 @@ kind: Application
 metadata:
   name: devops-app-dev
   namespace: argocd
-  annotations:
-    argocd-image-updater.argoproj.io/image-list: myapp=saadpatel2400/devops-app
-    argocd-image-updater.argoproj.io/myapp.update-strategy: newest-build
-    argocd-image-updater.argoproj.io/myapp.allow-tags: regexp:^dev-[a-f0-9]+$
-    argocd-image-updater.argoproj.io/myapp.helm.image-name: image.repository
-    argocd-image-updater.argoproj.io/myapp.helm.image-tag: image.tag
-    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
-    argocd-image-updater.argoproj.io/write-back-target: helmvalues:AutoScaleOps/values-dev.yaml
-
 spec:
   project: default
   source:
