@@ -1,12 +1,9 @@
 replicaCount: 1
-
 image:
   repository: saadpatel2400/devops-app
-  tag: v1
-
+  tag: dev-d6189e7
 service:
-  nodePort: 30007   # dev env assigned port 30007
-
+  nodePort: 30007 # dev env assigned port 30007
 hpa:
   minReplicas: 1
   maxReplicas: 3
