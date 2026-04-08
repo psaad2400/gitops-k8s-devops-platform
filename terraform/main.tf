@@ -17,11 +17,17 @@ resource "kind_cluster" "dev" {
   kind        = "Cluster"
   api_version = "kind.x-k8s.io/v1alpha4"
 
+  networking {
+      api_server_address = "0.0.0.0"
+      api_server_port    = 6443
+    }
+
   node {
     role = "control-plane"
 
+
     extra_port_mappings {      # Application Service
-      container_port = 30007   # NodePort inside cluster
+      container_port = 30007   # NodePort inside cluster for DEV ENV.
       host_port      = 30007   # Port on your machine
       protocol       = "TCP"
     }
@@ -37,6 +43,18 @@ resource "kind_cluster" "dev" {
       host_port      = 30009   # Port on your machine
       protocol       = "TCP"
     }
+
+    extra_port_mappings {      # Grafana
+      container_port = 30010   # NodePort inside cluster
+      host_port      = 30010   # Port on your machine
+      protocol       = "TCP"
+    }
+
+    extra_port_mappings {
+      container_port = 30011   # Application
+      host_port      = 30011   # For PROD env setup
+      protocol       = "TCP"
+}
   }
 
 
