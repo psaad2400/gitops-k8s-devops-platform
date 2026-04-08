@@ -23,4 +23,4 @@ spec:
     gitConfig:
       repository: "https://github.com/psaad2400/gitops-k8s-devops-platform"
       branch: "main"
-      writeBackTarget: "helmvalues:values-dev.yaml"
+      writeBackTarget: "helmvalues:./values-dev.yaml"
