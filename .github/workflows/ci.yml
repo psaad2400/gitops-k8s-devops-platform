@@ -623,71 +623,71 @@ jobs:
   # Runs even when scan fails — dev env always gets latest SHA.
   # ArgoCD picks up the sha-tagged image in values-dev.yaml.
   # ──────────────────────────────────────────────────────────
-  sync-dev:
-    name: 🔀 Sync Dev Environment
-    runs-on: self-hosted
-    needs: publish
-    if: always() && needs.publish.result == 'success'
+  # sync-dev:
+  #   name: 🔀 Sync Dev Environment
+  #   runs-on: self-hosted
+  #   needs: publish
+  #   if: always() && needs.publish.result == 'success'
 
-    steps:
+  #   steps:
 
-      # Copies fresh kubeconfig from Windows and fixes host IP for WSL.
-      # Required on every run — KinD recreates certs on each cluster start.
-      # - name: Fix kubeconfig for WSL
-      #   uses: ./.github/actions/fix-kubeconfig
+  #     # Copies fresh kubeconfig from Windows and fixes host IP for WSL.
+  #     # Required on every run — KinD recreates certs on each cluster start.
+  #     # - name: Fix kubeconfig for WSL
+  #     #   uses: ./.github/actions/fix-kubeconfig
 
-      - name: Update Tag & Trigger Dev Sync
-        run: |
-          # Patching both the Helm parameter for the unique tag AND triggering the sync
-          kubectl patch application ${{ env.ARGOCD_DEV_APP }} \
-            -n argocd \
-            --type merge \
-            -p '{
-              "spec": {
-                "source": {
-                  "helm": {
-                    "parameters": [
-                      {"name": "image.tag", "value": "sha-${{ github.sha }}"}
-                    ]
-                  }
-                }
-              },
-              "operation": {
-                "initiatedBy": {"username": "ci-runner"},
-                "sync": {
-                  "prune": true,
-                  "syncOptions": ["CreateNamespace=true"],
-                  "revisions": ["HEAD"]
-                }
-              }
-            }'
-          echo "🔄 Dev sync triggered with dynamic tag: sha-${{ github.sha }}"
+  #     - name: Update Tag & Trigger Dev Sync
+  #       run: |
+  #         # Patching both the Helm parameter for the unique tag AND triggering the sync
+  #         kubectl patch application ${{ env.ARGOCD_DEV_APP }} \
+  #           -n argocd \
+  #           --type merge \
+  #           -p '{
+  #             "spec": {
+  #               "source": {
+  #                 "helm": {
+  #                   "parameters": [
+  #                     {"name": "image.tag", "value": "sha-${{ github.sha }}"}
+  #                   ]
+  #                 }
+  #               }
+  #             },
+  #             "operation": {
+  #               "initiatedBy": {"username": "ci-runner"},
+  #               "sync": {
+  #                 "prune": true,
+  #                 "syncOptions": ["CreateNamespace=true"],
+  #                 "revisions": ["HEAD"]
+  #               }
+  #             }
+  #           }'
+  #         echo "🔄 Dev sync triggered with dynamic tag: sha-${{ github.sha }}"
 
-      - name: Wait for Dev Sync (3 min timeout)
-        run: |
-          for i in $(seq 1 18); do
-            STATUS=$(kubectl get application ${{ env.ARGOCD_DEV_APP }} -n argocd \
-              -o jsonpath='{.status.sync.status}')
-            HEALTH=$(kubectl get application ${{ env.ARGOCD_DEV_APP }} -n argocd \
-              -o jsonpath='{.status.health.status}')
+  #     - name: Wait for Dev Sync (3 min timeout)
+  #       run: |
+  #         for i in $(seq 1 18); do
+  #           STATUS=$(kubectl get application ${{ env.ARGOCD_DEV_APP }} -n argocd \
+  #             -o jsonpath='{.status.sync.status}')
+  #           HEALTH=$(kubectl get application ${{ env.ARGOCD_DEV_APP }} -n argocd \
+  #             -o jsonpath='{.status.health.status}')
 
-            echo "Attempt $i/18 — Sync: $STATUS | Health: $HEALTH"
+  #           echo "Attempt $i/18 — Sync: $STATUS | Health: $HEALTH"
 
-            if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
-              echo "✅ Dev — Synced and Healthy!"
-              exit 0
-            fi
+  #           if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+  #             echo "✅ Dev — Synced and Healthy!"
+  #             exit 0
+  #           fi
 
-            sleep 10
-          done
+  #           sleep 10
+  #         done
 
-            if [ "$HEALTH" = "Degraded" ]; then
-              echo "❌ Dev — Application Degraded."
-              exit 1
-            fi
+  #           if [ "$HEALTH" = "Degraded" ]; then
+  #             echo "❌ Dev — Application Degraded."
+  #             exit 1
+  #           fi
 
-          echo "❌ Dev sync timed out."
-          exit 1
+  #         echo "❌ Dev sync timed out."
+  #         exit 1
 
   # ──────────────────────────────────────────────────────────
   # JOB 5 — DEPLOY PROD
@@ -774,7 +774,9 @@ jobs:
   notify:
     name: 📢 Slack Notification
     runs-on: ubuntu-latest
-    needs: [security-scan, publish, sync-dev, deploy-prod]
+    # needs: [security-scan, publish, sync-dev, deploy-prod]
+    needs: [security-scan, publish, deploy-prod]
+
     if: always()
 
     steps:
