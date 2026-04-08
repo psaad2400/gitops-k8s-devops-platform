@@ -3,6 +3,7 @@
 *.tfstate
 *.tfstate.backup
 terraform.lock.hcl
+devops-cluster-config
 
 # Python
 __pycache__/
@@ -11,3 +12,4 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+.env
